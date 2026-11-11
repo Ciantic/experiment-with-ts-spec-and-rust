@@ -40,3 +40,9 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# Rust
+/target/
+**/*.rs.bk
+*.profraw
+*.profdata

@@ -1,0 +1,8 @@
+[package]
+name = "backend"
+edition.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "backend"
+path = "src/main.rs"
