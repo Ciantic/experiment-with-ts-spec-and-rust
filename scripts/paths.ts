@@ -15,3 +15,6 @@ export const INFRA_PACKAGE_ROOT = join(REPO_ROOT, "packages/infra");
 
 /** The `sdk` package root. */
 export const SDK_PACKAGE_ROOT = join(REPO_ROOT, "packages/sdk");
+
+/** The `models` crate root. */
+export const MODELS_CRATE_ROOT = join(REPO_ROOT, "crates/models");

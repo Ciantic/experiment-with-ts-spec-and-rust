@@ -14,6 +14,7 @@ import { run as runOperationRoutes } from "./operations/generate-operation-route
 import { run as runRestClient } from "./sdk/generate-rest-client.ts";
 import { run as runValidation } from "./sdk/generate-zod-schemas.ts";
 import { run as runErrors } from "./sdk/generate-errors.ts";
+import { run as runModels } from "./models-rs/generate-models.ts";
 
 /** One step of the run: read the spec, do its job, and report the exit code. */
 type Step = (spec: SpecModel, argv: readonly string[]) => number;
@@ -37,6 +38,7 @@ const steps: Step[] = [
     runEntityRoutes,
     runOperationRoutes,
     runRestClient,
+    runModels,
 ];
 
 for (const step of steps) {
