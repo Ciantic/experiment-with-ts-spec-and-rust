@@ -163,6 +163,60 @@ pub struct ReadOptions {
 column name cannot be typed by hand and a raw bind value cannot be supplied;
 the entity's fields lower to them inside the module.
 
+## JSON
+
+`WidgetReadOptions` and everything it holds implement `serde::Serialize` and
+`serde::Deserialize`, so a read can cross a boundary — an HTTP query string, a
+cache entry, a test fixture — and come back:
+
+```rust
+let json = serde_json::to_string(&options)?;
+let back: WidgetReadOptions = serde_json::from_str(&json)?;
+assert_eq!(back, options);
+```
+
+A field enum is its column name, so the JSON names the column rather than a Rust
+variant:
+
+```json
+{
+  "select": ["id", "number", "totalAmount", "createdAt"],
+  "filters": [
+    { "kind": "condition", "field": "tenantId", "operator": "eq", "value": "…" },
+    { "kind": "condition", "field": "id", "operator": "any", "value": ["…", "…"] },
+    {
+      "kind": "or",
+      "filters": [
+        { "kind": "condition", "field": "deletedAt", "operator": "isNull" },
+        { "kind": "condition", "field": "sellerId", "operator": "isNotNull" }
+      ]
+    }
+  ],
+  "order": [{ "field": "createdAt", "direction": "desc", "nulls": "last" }],
+  "limit": 25,
+  "offset": 50
+}
+```
+
+Decoding is strict about what the spec allows, because every name in the payload
+is one of the entity's own types:
+
+- An unknown top-level key, or an unknown key of an ordering clause, is an error.
+- A column the entity does not declare is an error; so is a column that carries
+  no `@queryFilter` in `filters`, or no `@queryOrderBy` in `order`.
+- An operator outside `FilterOperator` is an error, so a payload cannot invent
+  SQL.
+
+Every part of the shape is optional: `{}` reads every column of every row. An
+empty collection and an omitted one mean the same thing, so a round-trip drops
+`"select": []` rather than writing it. An ordering clause may omit `direction`,
+which reads as `asc`.
+
+A decoded value is bound by its column's type, the same as a value the typed
+builder supplied: an `operator` and `value` that do not fit the column — say a
+boolean for a `uuid` column — is reported as `ReadError::InvalidValue` when the
+statement runs, not silently coerced.
+
 ## Planned parameters
 
 `ReadOptions::plan` builds the statement and pairs every parameter with the

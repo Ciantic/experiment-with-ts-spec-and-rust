@@ -11,10 +11,15 @@ use datagrid_query::{
 use models::domain::invoicing_service::translation::TranslationSelect;
 
 /// A column of `Translation` a read may select.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum TranslationSelectField {
+    #[serde(rename = "lang")]
     Lang,
+    #[serde(rename = "key")]
     Key,
+    #[serde(rename = "value")]
     Value,
 }
 
@@ -51,9 +56,13 @@ impl std::fmt::Display for TranslationSelectField {
 }
 
 /// A column of `Translation` a read may filter on, from `@queryFilter`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum TranslationFilterField {
+    #[serde(rename = "lang")]
     Lang,
+    #[serde(rename = "key")]
     Key,
 }
 
@@ -222,19 +231,21 @@ impl TranslationKeyFilter {
 }
 
 /// A filter over `Translation`: one comparison on a `TranslationFilterField`, or a group of them.
-/// The read's filters are combined with `and`.
-#[derive(Clone, Debug, PartialEq)]
+/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TranslationFilter {
     /// One comparison on one column.
     Condition {
         field: TranslationFilterField,
         operator: FilterOperator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
     },
     /// Every child must match.
-    And(Vec<Self>),
+    And { filters: Vec<Self> },
     /// Any child may match.
-    Or(Vec<Self>),
+    Or { filters: Vec<Self> },
 }
 
 impl TranslationFilter {
@@ -271,13 +282,17 @@ impl TranslationFilter {
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And(filters.into_iter().collect())
+        Self::And {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or(filters.into_iter().collect())
+        Self::Or {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// The typed filter the planner binds.
@@ -289,11 +304,11 @@ impl TranslationFilter {
                 operator,
                 value,
             } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And(filters) => {
+            Self::And { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::And, children)
             }
-            Self::Or(filters) => {
+            Self::Or { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::Or, children)
             }
@@ -302,7 +317,9 @@ impl TranslationFilter {
 }
 
 /// A column of `Translation` a read may order by, from `@queryOrderBy`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum TranslationOrderField {}
 
 impl TranslationOrderField {
@@ -343,10 +360,13 @@ impl std::fmt::Display for TranslationOrderField {
 }
 
 /// One ordering clause of a `Translation` read, built from `TranslationOrderField`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranslationOrder {
     field: TranslationOrderField,
+    #[serde(default)]
     direction: SortDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     nulls: Option<NullsOrder>,
 }
 
@@ -377,17 +397,23 @@ impl TranslationOrder {
 }
 
 /// What a read of `Translation` selects, filters, orders, and pages.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TranslationReadOptions {
-    /// The selected columns; empty selects every column.
+    /// The selected columns; empty (or omitted) selects every column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<TranslationSelectField>,
     /// The filters, combined with `and`; each is built by a `TranslationFilterField` helper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<TranslationFilter>,
     /// The ordering clauses, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<TranslationOrder>,
     /// The maximum number of rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
     /// The number of leading rows to skip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
 }
 

@@ -15,23 +15,41 @@ use models::domain::invoicing_service::seller::SellerId;
 use models::domain::user_service::tenant::TenantId;
 
 /// A column of `Invoice` a read may select.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum InvoiceSelectField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "tenantId")]
     TenantId,
+    #[serde(rename = "number")]
     Number,
+    #[serde(rename = "customerId")]
     CustomerId,
+    #[serde(rename = "sellerId")]
     SellerId,
+    #[serde(rename = "language")]
     Language,
+    #[serde(rename = "issueDate")]
     IssueDate,
+    #[serde(rename = "dueDate")]
     DueDate,
+    #[serde(rename = "netAmount")]
     NetAmount,
+    #[serde(rename = "taxAmount")]
     TaxAmount,
+    #[serde(rename = "totalAmount")]
     TotalAmount,
+    #[serde(rename = "notes")]
     Notes,
+    #[serde(rename = "createdAt")]
     CreatedAt,
+    #[serde(rename = "updatedAt")]
     UpdatedAt,
+    #[serde(rename = "deletedAt")]
     DeletedAt,
+    #[serde(rename = "version")]
     Version,
 }
 
@@ -94,12 +112,19 @@ impl std::fmt::Display for InvoiceSelectField {
 }
 
 /// A column of `Invoice` a read may filter on, from `@queryFilter`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum InvoiceFilterField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "tenantId")]
     TenantId,
+    #[serde(rename = "customerId")]
     CustomerId,
+    #[serde(rename = "sellerId")]
     SellerId,
+    #[serde(rename = "deletedAt")]
     DeletedAt,
 }
 
@@ -475,19 +500,21 @@ impl InvoiceDeletedAtFilter {
 }
 
 /// A filter over `Invoice`: one comparison on a `InvoiceFilterField`, or a group of them.
-/// The read's filters are combined with `and`.
-#[derive(Clone, Debug, PartialEq)]
+/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InvoiceFilter {
     /// One comparison on one column.
     Condition {
         field: InvoiceFilterField,
         operator: FilterOperator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
     },
     /// Every child must match.
-    And(Vec<Self>),
+    And { filters: Vec<Self> },
     /// Any child may match.
-    Or(Vec<Self>),
+    Or { filters: Vec<Self> },
 }
 
 impl InvoiceFilter {
@@ -524,13 +551,17 @@ impl InvoiceFilter {
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And(filters.into_iter().collect())
+        Self::And {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or(filters.into_iter().collect())
+        Self::Or {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// The typed filter the planner binds.
@@ -542,11 +573,11 @@ impl InvoiceFilter {
                 operator,
                 value,
             } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And(filters) => {
+            Self::And { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::And, children)
             }
-            Self::Or(filters) => {
+            Self::Or { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::Or, children)
             }
@@ -555,9 +586,13 @@ impl InvoiceFilter {
 }
 
 /// A column of `Invoice` a read may order by, from `@queryOrderBy`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum InvoiceOrderField {
+    #[serde(rename = "createdAt")]
     CreatedAt,
+    #[serde(rename = "updatedAt")]
     UpdatedAt,
 }
 
@@ -606,10 +641,13 @@ impl std::fmt::Display for InvoiceOrderField {
 }
 
 /// One ordering clause of a `Invoice` read, built from `InvoiceOrderField`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InvoiceOrder {
     field: InvoiceOrderField,
+    #[serde(default)]
     direction: SortDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     nulls: Option<NullsOrder>,
 }
 
@@ -640,17 +678,23 @@ impl InvoiceOrder {
 }
 
 /// What a read of `Invoice` selects, filters, orders, and pages.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InvoiceReadOptions {
-    /// The selected columns; empty selects every column.
+    /// The selected columns; empty (or omitted) selects every column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<InvoiceSelectField>,
     /// The filters, combined with `and`; each is built by a `InvoiceFilterField` helper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<InvoiceFilter>,
     /// The ordering clauses, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<InvoiceOrder>,
     /// The maximum number of rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
     /// The number of leading rows to skip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
 }
 

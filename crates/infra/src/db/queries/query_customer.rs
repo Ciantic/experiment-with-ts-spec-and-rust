@@ -13,19 +13,33 @@ use models::domain::invoicing_service::customer::CustomerSelect;
 use models::domain::user_service::tenant::TenantId;
 
 /// A column of `Customer` a read may select.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum CustomerSelectField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "tenantId")]
     TenantId,
+    #[serde(rename = "name")]
     Name,
+    #[serde(rename = "email")]
     Email,
+    #[serde(rename = "address")]
     Address,
+    #[serde(rename = "businessId")]
     BusinessId,
+    #[serde(rename = "eInvoiceAddress")]
     EInvoiceAddress,
+    #[serde(rename = "eInvoiceOperator")]
     EInvoiceOperator,
+    #[serde(rename = "language")]
     Language,
+    #[serde(rename = "createdAt")]
     CreatedAt,
+    #[serde(rename = "updatedAt")]
     UpdatedAt,
+    #[serde(rename = "version")]
     Version,
 }
 
@@ -80,9 +94,13 @@ impl std::fmt::Display for CustomerSelectField {
 }
 
 /// A column of `Customer` a read may filter on, from `@queryFilter`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum CustomerFilterField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "tenantId")]
     TenantId,
 }
 
@@ -251,19 +269,21 @@ impl CustomerTenantIdFilter {
 }
 
 /// A filter over `Customer`: one comparison on a `CustomerFilterField`, or a group of them.
-/// The read's filters are combined with `and`.
-#[derive(Clone, Debug, PartialEq)]
+/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum CustomerFilter {
     /// One comparison on one column.
     Condition {
         field: CustomerFilterField,
         operator: FilterOperator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
     },
     /// Every child must match.
-    And(Vec<Self>),
+    And { filters: Vec<Self> },
     /// Any child may match.
-    Or(Vec<Self>),
+    Or { filters: Vec<Self> },
 }
 
 impl CustomerFilter {
@@ -300,13 +320,17 @@ impl CustomerFilter {
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And(filters.into_iter().collect())
+        Self::And {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or(filters.into_iter().collect())
+        Self::Or {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// The typed filter the planner binds.
@@ -318,11 +342,11 @@ impl CustomerFilter {
                 operator,
                 value,
             } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And(filters) => {
+            Self::And { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::And, children)
             }
-            Self::Or(filters) => {
+            Self::Or { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::Or, children)
             }
@@ -331,7 +355,9 @@ impl CustomerFilter {
 }
 
 /// A column of `Customer` a read may order by, from `@queryOrderBy`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum CustomerOrderField {}
 
 impl CustomerOrderField {
@@ -372,10 +398,13 @@ impl std::fmt::Display for CustomerOrderField {
 }
 
 /// One ordering clause of a `Customer` read, built from `CustomerOrderField`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CustomerOrder {
     field: CustomerOrderField,
+    #[serde(default)]
     direction: SortDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     nulls: Option<NullsOrder>,
 }
 
@@ -406,17 +435,23 @@ impl CustomerOrder {
 }
 
 /// What a read of `Customer` selects, filters, orders, and pages.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CustomerReadOptions {
-    /// The selected columns; empty selects every column.
+    /// The selected columns; empty (or omitted) selects every column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<CustomerSelectField>,
     /// The filters, combined with `and`; each is built by a `CustomerFilterField` helper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<CustomerFilter>,
     /// The ordering clauses, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<CustomerOrder>,
     /// The maximum number of rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
     /// The number of leading rows to skip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
 }
 

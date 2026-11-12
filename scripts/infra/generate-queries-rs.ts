@@ -146,6 +146,7 @@ function renderFieldEnum(entity: string, kind: "Select" | "Filter" | "Order", fi
     const name = fieldEnumName(entity, kind);
     const lines: string[] = fields.length === 0 ? [`pub enum ${name} {}`] : [`pub enum ${name} {`];
     for (const field of fields) {
+        lines.push(`    #[serde(rename = ${JSON.stringify(field.name)})]`);
         lines.push(`    ${fieldVariant(field.name)},`);
     }
     if (fields.length > 0) {
@@ -210,8 +211,12 @@ function renderFieldEnum(entity: string, kind: "Select" | "Filter" | "Order", fi
 }
 
 /** The derive line above a field enum. */
-function fieldEnumDerive(): string {
-    return "#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]";
+function fieldEnumDerive(): string[] {
+    return [
+        "#[derive(",
+        "    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,",
+        ")]",
+    ];
 }
 
 /** The `select` helper of a selectable field. */
@@ -247,19 +252,21 @@ function renderFilterStruct(entity: string): string[] {
     const bind = signature("bind", [`field: ${field}`, "operator: FilterOperator", "value: impl BindValue"], "Result<Self, ReadError>", 4, "");
     return [
         `/// A filter over \`${entity}\`: one comparison on a \`${field}\`, or a group of them.`,
-        `/// The read's filters are combined with \`and\`.`,
-        "#[derive(Clone, Debug, PartialEq)]",
+        `/// The read's filters are combined with \`and\`. See docs/rust-queries.md for the JSON shape.`,
+        "#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]",
+        '#[serde(tag = "kind", rename_all = "camelCase")]',
         `pub enum ${filter} {`,
         "    /// One comparison on one column.",
         "    Condition {",
         `        field: ${field},`,
         "        operator: FilterOperator,",
+        '        #[serde(default, skip_serializing_if = "Option::is_none")]',
         "        value: Option<Value>,",
         "    },",
         "    /// Every child must match.",
-        "    And(Vec<Self>),",
+        "    And { filters: Vec<Self> },",
         "    /// Any child may match.",
-        "    Or(Vec<Self>),",
+        "    Or { filters: Vec<Self> },",
         "}",
         "",
         `impl ${filter} {`,
@@ -288,13 +295,17 @@ function renderFilterStruct(entity: string): string[] {
         "    /// Every child must match; an empty group matches everything.",
         "    #[must_use]",
         "    pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {",
-        "        Self::And(filters.into_iter().collect())",
+        "        Self::And {",
+        "            filters: filters.into_iter().collect(),",
+        "        }",
         "    }",
         "",
         "    /// Any child may match; an empty group matches nothing.",
         "    #[must_use]",
         "    pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {",
-        "        Self::Or(filters.into_iter().collect())",
+        "        Self::Or {",
+        "            filters: filters.into_iter().collect(),",
+        "        }",
         "    }",
         "",
         "    /// The typed filter the planner binds.",
@@ -306,11 +317,11 @@ function renderFilterStruct(entity: string): string[] {
         "                operator,",
         "                value,",
         "            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),",
-        "            Self::And(filters) => {",
+        "            Self::And { filters } => {",
         "                let children = filters.into_iter().map(Self::into_typed_filter).collect();",
         "                TypedFilter::group(Combinator::And, children)",
         "            }",
-        "            Self::Or(filters) => {",
+        "            Self::Or { filters } => {",
         "                let children = filters.into_iter().map(Self::into_typed_filter).collect();",
         "                TypedFilter::group(Combinator::Or, children)",
         "            }",
@@ -473,10 +484,13 @@ function renderOrderStruct(entity: string): string[] {
     const order = `${entity}Order`;
     return [
         `/// One ordering clause of a \`${entity}\` read, built from \`${entity}OrderField\`.`,
-        "#[derive(Clone, Debug, PartialEq)]",
+        "#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]",
+        '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
         `pub struct ${order} {`,
         `    field: ${entity}OrderField,`,
+        '    #[serde(default)]',
         "    direction: SortDirection,",
+        '    #[serde(default, skip_serializing_if = "Option::is_none")]',
         "    nulls: Option<NullsOrder>,",
         "}",
         "",
@@ -523,17 +537,23 @@ function renderReadOptions(entity: string): string[] {
     const order = `${entity}Order`;
     return [
         `/// What a read of \`${entity}\` selects, filters, orders, and pages.`,
-        "#[derive(Clone, Debug, Default)]",
+        "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
+        '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
         `pub struct ${options} {`,
-        "    /// The selected columns; empty selects every column.",
+        "    /// The selected columns; empty (or omitted) selects every column.",
+        '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
         `    pub select: Vec<${select}>,`,
         `    /// The filters, combined with \`and\`; each is built by a \`${entity}FilterField\` helper.`,
+        '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
         `    pub filters: Vec<${entity}Filter>,`,
         "    /// The ordering clauses, in order.",
+        '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
         `    pub order: Vec<${order}>,`,
         "    /// The maximum number of rows.",
+        '    #[serde(default, skip_serializing_if = "Option::is_none")]',
         "    pub limit: Option<u64>,",
         "    /// The number of leading rows to skip.",
+        '    #[serde(default, skip_serializing_if = "Option::is_none")]',
         "    pub offset: Option<u64>,",
         "}",
         "",
@@ -623,12 +643,12 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     }
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may select.`);
-    lines.push(fieldEnumDerive());
+    lines.push(...fieldEnumDerive());
     const selectable: FieldInfo[] = selectableFields(table).map((name) => ({ name }));
     lines.push(...renderFieldEnum(entity, "Select", selectable, selectHelper()));
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may filter on, from \`@queryFilter\`.`);
-    lines.push(fieldEnumDerive());
+    lines.push(...fieldEnumDerive());
     lines.push(...renderFieldEnum(entity, "Filter", filters, []));
     lines.push("");
     lines.push(...renderFilterBuilders(entity, filters));
@@ -636,7 +656,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push(...renderFilterStruct(entity));
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may order by, from \`@queryOrderBy\`.`);
-    lines.push(fieldEnumDerive());
+    lines.push(...fieldEnumDerive());
     const orderable: FieldInfo[] = orderFields(table).map((name) => ({ name }));
     lines.push(...renderFieldEnum(entity, "Order", orderable, orderHelpers(entity)));
     lines.push("");

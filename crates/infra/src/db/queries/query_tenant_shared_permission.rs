@@ -13,14 +13,23 @@ use models::domain::user_service::tenant_shared_permission::TenantSharedPermissi
 use models::domain::user_service::tenant_shared_permission::TenantSharedPermissionSelect;
 
 /// A column of `TenantSharedPermission` a read may select.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum TenantSharedPermissionSelectField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "ownerTenantId")]
     OwnerTenantId,
+    #[serde(rename = "sharedTenantId")]
     SharedTenantId,
+    #[serde(rename = "permissions")]
     Permissions,
+    #[serde(rename = "createdAt")]
     CreatedAt,
+    #[serde(rename = "updatedAt")]
     UpdatedAt,
+    #[serde(rename = "version")]
     Version,
 }
 
@@ -65,10 +74,15 @@ impl std::fmt::Display for TenantSharedPermissionSelectField {
 }
 
 /// A column of `TenantSharedPermission` a read may filter on, from `@queryFilter`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum TenantSharedPermissionFilterField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "ownerTenantId")]
     OwnerTenantId,
+    #[serde(rename = "sharedTenantId")]
     SharedTenantId,
 }
 
@@ -324,19 +338,21 @@ impl TenantSharedPermissionSharedTenantIdFilter {
 }
 
 /// A filter over `TenantSharedPermission`: one comparison on a `TenantSharedPermissionFilterField`, or a group of them.
-/// The read's filters are combined with `and`.
-#[derive(Clone, Debug, PartialEq)]
+/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum TenantSharedPermissionFilter {
     /// One comparison on one column.
     Condition {
         field: TenantSharedPermissionFilterField,
         operator: FilterOperator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
     },
     /// Every child must match.
-    And(Vec<Self>),
+    And { filters: Vec<Self> },
     /// Any child may match.
-    Or(Vec<Self>),
+    Or { filters: Vec<Self> },
 }
 
 impl TenantSharedPermissionFilter {
@@ -373,13 +389,17 @@ impl TenantSharedPermissionFilter {
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And(filters.into_iter().collect())
+        Self::And {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or(filters.into_iter().collect())
+        Self::Or {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// The typed filter the planner binds.
@@ -391,11 +411,11 @@ impl TenantSharedPermissionFilter {
                 operator,
                 value,
             } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And(filters) => {
+            Self::And { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::And, children)
             }
-            Self::Or(filters) => {
+            Self::Or { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::Or, children)
             }
@@ -404,7 +424,9 @@ impl TenantSharedPermissionFilter {
 }
 
 /// A column of `TenantSharedPermission` a read may order by, from `@queryOrderBy`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum TenantSharedPermissionOrderField {}
 
 impl TenantSharedPermissionOrderField {
@@ -445,10 +467,13 @@ impl std::fmt::Display for TenantSharedPermissionOrderField {
 }
 
 /// One ordering clause of a `TenantSharedPermission` read, built from `TenantSharedPermissionOrderField`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TenantSharedPermissionOrder {
     field: TenantSharedPermissionOrderField,
+    #[serde(default)]
     direction: SortDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     nulls: Option<NullsOrder>,
 }
 
@@ -479,17 +504,23 @@ impl TenantSharedPermissionOrder {
 }
 
 /// What a read of `TenantSharedPermission` selects, filters, orders, and pages.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TenantSharedPermissionReadOptions {
-    /// The selected columns; empty selects every column.
+    /// The selected columns; empty (or omitted) selects every column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<TenantSharedPermissionSelectField>,
     /// The filters, combined with `and`; each is built by a `TenantSharedPermissionFilterField` helper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<TenantSharedPermissionFilter>,
     /// The ordering clauses, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<TenantSharedPermissionOrder>,
     /// The maximum number of rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
     /// The number of leading rows to skip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
 }
 

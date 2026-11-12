@@ -220,6 +220,40 @@ describe("renderQueryModule", () => {
         expect(code).toContain("TypedFilter::group(Combinator::Or, children)");
     });
 
+    it("serializes each field enum as its column name", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("#[derive(");
+        expect(code).toContain("Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,");
+        expect(code).toContain('    #[serde(rename = "tenantId")]\n    TenantId,');
+    });
+
+    it("serializes the read options as camelCase JSON, rejecting an unknown key", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain(
+            "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
+        );
+        expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceReadOptions {');
+        expect(code).toContain('#[serde(default, skip_serializing_if = "Vec::is_empty")]\n    pub select: Vec<InvoiceSelectField>,');
+        expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]\n    pub limit: Option<u64>,');
+    });
+
+    it("tags a filter by kind, so a group and a condition share one shape", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain('#[serde(tag = "kind", rename_all = "camelCase")]');
+        expect(code).toContain("    And { filters: Vec<Self> },");
+        expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]');
+    });
+
+    it("serializes an ordering clause with a defaulted direction", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceOrder {');
+        expect(code).toContain("    #[serde(default)]\n    direction: SortDirection,");
+    });
+
     it("decodes into the entity's selected shape", () => {
         const code = renderQueryModule(invoice, spec);
 

@@ -13,18 +13,31 @@ use models::domain::invoicing_service::invoice_sent_row::InvoiceSentRowSelect;
 use models::domain::user_service::tenant::TenantId;
 
 /// A column of `InvoiceSentRow` a read may select.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum InvoiceSentRowSelectField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "tenantId")]
     TenantId,
+    #[serde(rename = "invoiceSentId")]
     InvoiceSentId,
+    #[serde(rename = "description")]
     Description,
+    #[serde(rename = "quantity")]
     Quantity,
+    #[serde(rename = "unit")]
     Unit,
+    #[serde(rename = "unitPrice")]
     UnitPrice,
+    #[serde(rename = "taxRate")]
     TaxRate,
+    #[serde(rename = "netAmount")]
     NetAmount,
+    #[serde(rename = "taxAmount")]
     TaxAmount,
+    #[serde(rename = "totalAmount")]
     TotalAmount,
 }
 
@@ -77,9 +90,13 @@ impl std::fmt::Display for InvoiceSentRowSelectField {
 }
 
 /// A column of `InvoiceSentRow` a read may filter on, from `@queryFilter`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum InvoiceSentRowFilterField {
+    #[serde(rename = "id")]
     Id,
+    #[serde(rename = "tenantId")]
     TenantId,
 }
 
@@ -255,19 +272,21 @@ impl InvoiceSentRowTenantIdFilter {
 }
 
 /// A filter over `InvoiceSentRow`: one comparison on a `InvoiceSentRowFilterField`, or a group of them.
-/// The read's filters are combined with `and`.
-#[derive(Clone, Debug, PartialEq)]
+/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InvoiceSentRowFilter {
     /// One comparison on one column.
     Condition {
         field: InvoiceSentRowFilterField,
         operator: FilterOperator,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
         value: Option<Value>,
     },
     /// Every child must match.
-    And(Vec<Self>),
+    And { filters: Vec<Self> },
     /// Any child may match.
-    Or(Vec<Self>),
+    Or { filters: Vec<Self> },
 }
 
 impl InvoiceSentRowFilter {
@@ -304,13 +323,17 @@ impl InvoiceSentRowFilter {
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And(filters.into_iter().collect())
+        Self::And {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or(filters.into_iter().collect())
+        Self::Or {
+            filters: filters.into_iter().collect(),
+        }
     }
 
     /// The typed filter the planner binds.
@@ -322,11 +345,11 @@ impl InvoiceSentRowFilter {
                 operator,
                 value,
             } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And(filters) => {
+            Self::And { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::And, children)
             }
-            Self::Or(filters) => {
+            Self::Or { filters } => {
                 let children = filters.into_iter().map(Self::into_typed_filter).collect();
                 TypedFilter::group(Combinator::Or, children)
             }
@@ -335,7 +358,9 @@ impl InvoiceSentRowFilter {
 }
 
 /// A column of `InvoiceSentRow` a read may order by, from `@queryOrderBy`.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
+)]
 pub enum InvoiceSentRowOrderField {}
 
 impl InvoiceSentRowOrderField {
@@ -376,10 +401,13 @@ impl std::fmt::Display for InvoiceSentRowOrderField {
 }
 
 /// One ordering clause of a `InvoiceSentRow` read, built from `InvoiceSentRowOrderField`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InvoiceSentRowOrder {
     field: InvoiceSentRowOrderField,
+    #[serde(default)]
     direction: SortDirection,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     nulls: Option<NullsOrder>,
 }
 
@@ -410,17 +438,23 @@ impl InvoiceSentRowOrder {
 }
 
 /// What a read of `InvoiceSentRow` selects, filters, orders, and pages.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct InvoiceSentRowReadOptions {
-    /// The selected columns; empty selects every column.
+    /// The selected columns; empty (or omitted) selects every column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<InvoiceSentRowSelectField>,
     /// The filters, combined with `and`; each is built by a `InvoiceSentRowFilterField` helper.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<InvoiceSentRowFilter>,
     /// The ordering clauses, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub order: Vec<InvoiceSentRowOrder>,
     /// The maximum number of rows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u64>,
     /// The number of leading rows to skip.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<u64>,
 }
 
