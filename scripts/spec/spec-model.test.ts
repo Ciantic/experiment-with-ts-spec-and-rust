@@ -298,15 +298,15 @@ describe("parseSpec tags", () => {
             "Thing.ts": thing("    /**\n     * @queryFilter\n     */", "code: string;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: false });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
-    it("decodes @queryFilter required", () => {
+    it("keeps a `required` token out of the model, for the linter to report", () => {
         const { interfaces } = parse({
             "Thing.ts": thing("    /**\n     * @queryFilter required\n     */", "code: string;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: true });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
     it("leaves an @queryFilter value the linter rejects as optional", () => {
@@ -314,7 +314,7 @@ describe("parseSpec tags", () => {
             "Thing.ts": thing("    /**\n     * @queryFilter yes\n     */", "code: string;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: false });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
     it("decodes @queryFilter default=isNull as a null test", () => {
@@ -323,7 +323,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "isNull" },
         });
     });
@@ -334,7 +334,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "isNotNull" },
         });
     });
@@ -344,7 +344,7 @@ describe("parseSpec tags", () => {
             "Thing.ts": thing("    /**\n     * @queryFilter default=null\n     */", "code?: Date;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: false });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
     it("decodes a numeric filter default", () => {
@@ -353,7 +353,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: 0 },
         });
     });
@@ -364,7 +364,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: true },
         });
     });
@@ -375,7 +375,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: "draft" },
         });
     });
@@ -386,7 +386,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: "draft" },
         });
     });
@@ -397,7 +397,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: "isNull" },
         });
     });
@@ -408,7 +408,7 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: "on hold" },
         });
     });
@@ -419,18 +419,18 @@ describe("parseSpec tags", () => {
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: false,
+            ops: ["eq"],
             default: { kind: "literal", value: "9007199254740993" },
         });
     });
 
     it("decodes both options when one tag carries them", () => {
         const { interfaces } = parse({
-            "Thing.ts": thing("    /**\n     * @queryFilter required default=isNull\n     */", "code?: string;"),
+            "Thing.ts": thing("    /**\n     * @queryFilter default=isNull\n     */", "code?: string;"),
         });
 
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
-            required: true,
+            ops: ["eq"],
             default: { kind: "isNull" },
         });
     });
@@ -531,18 +531,18 @@ describe("parseSpec tags", () => {
             "Thing.ts": thing("    /**\n     * @fieldName ID\n     * @primaryKey\n     */", "id: ThingId;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: false });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
-    it("keeps a primary key that declares its filter required", () => {
+    it("keeps the primary key's filter when the field declares it too", () => {
         const { interfaces } = parse({
             "Thing.ts": thing(
-                "    /**\n     * @fieldName ID\n     * @primaryKey\n     * @queryFilter required\n     */",
+                "    /**\n     * @fieldName ID\n     * @primaryKey\n     * @queryFilter\n     */",
                 "id: ThingId;",
             ),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: true });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
     it("does not treat a field named id as the primary key", () => {
@@ -588,28 +588,32 @@ describe("parseSpec tags", () => {
         expect(interfaces.get("Thing")?.properties[0]?.tags.queryOrderBy).toEqual({});
     });
 
-    it("decodes @queryWhere operators in declaration order", () => {
+    it("decodes @queryFilter ops= in canonical order", () => {
         const { interfaces } = parse({
-            "Thing.ts": thing("    /**\n     * @queryWhere gte lte\n     */", "at: Date;"),
+            "Thing.ts": thing("    /**\n     * @queryFilter ops=lte,gte\n     */", "at: Date;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryWhere).toEqual(["gte", "lte"]);
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
+            ops: ["gte", "lte"],
+        });
     });
 
-    it("decodes a bare @queryWhere as an empty operator list", () => {
+    it("defaults @queryFilter to equality when ops= is absent", () => {
         const { interfaces } = parse({
-            "Thing.ts": thing("    /**\n     * @queryWhere\n     */", "at: Date;"),
+            "Thing.ts": thing("    /**\n     * @queryFilter\n     */", "at: Date;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryWhere).toEqual([]);
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({
+            ops: ["eq"],
+        });
     });
 
-    it("leaves where undefined when the tag is absent", () => {
+    it("keeps a filter with no @queryFilter absent", () => {
         const { interfaces } = parse({
             "Thing.ts": thing("    /**\n     * @fieldName At\n     */", "at: Date;"),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryWhere).toBeUndefined();
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toBeUndefined();
     });
 });
 
@@ -903,11 +907,11 @@ describe("tenancy tags", () => {
             "Thing.ts": entity(
                 "Thing",
                 ["tenantOwned ownerId"],
-                "    /**\n     * @queryFilter required\n     */\n    ownerId: OwnerId;",
+                "    /**\n     * @queryFilter\n     */\n    ownerId: OwnerId;",
             ),
         });
 
-        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ required: true });
+        expect(interfaces.get("Thing")?.properties[0]?.tags.queryFilter).toEqual({ ops: ["eq"] });
     });
 
     it("fills a bare @tenantOwned from the interface's one link to the root", () => {

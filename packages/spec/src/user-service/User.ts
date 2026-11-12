@@ -39,7 +39,7 @@ export interface User {
      * The moment the address was proven, which is null until a link is redeemed.
      *
      * @fieldName Verified at
-     * @queryWhere isNull isNotNull
+     * @queryFilter ops=isNull,isNotNull
      * @widget date
      */
     emailVerifiedAt?: Date;

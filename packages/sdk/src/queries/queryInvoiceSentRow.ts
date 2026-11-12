@@ -20,10 +20,9 @@ export const queryInvoiceSentRowSelectSchema = z.lazy(() =>
 );
 
 export const queryInvoiceSentRowSchema = z.strictObject({
-    filter: z.strictObject({
-        id: z.array(primitives.brandedIdSchema<"InvoiceSentRowId">()).exactOptional(),
-        tenantId: z.array(primitives.brandedIdSchema<"TenantId">()).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"InvoiceSentRowId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryInvoiceSentRowSelectSchema,

@@ -21,10 +21,9 @@ export const queryCustomerSelectSchema = z.lazy(() =>
 );
 
 export const queryCustomerSchema = z.strictObject({
-    filter: z.strictObject({
-        id: z.array(primitives.brandedIdSchema<"CustomerId">()).exactOptional(),
-        tenantId: z.array(primitives.brandedIdSchema<"TenantId">()).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"CustomerId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryCustomerSelectSchema,

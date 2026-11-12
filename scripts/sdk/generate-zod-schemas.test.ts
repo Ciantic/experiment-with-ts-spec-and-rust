@@ -157,7 +157,7 @@ export interface Thing {
      * An optional amount.
      *
      * @queryOrderBy
-     * @queryWhere gte lte
+     * @queryFilter ops=gte,lte
      */
     amount?: Money;
     /**
@@ -243,9 +243,9 @@ export interface Scoped {
      */
     id: ScopedId;
     /**
-     * The tenant every read must name.
+     * The tenant the row belongs to.
      *
-     * @queryFilter required
+     * @queryFilter
      */
     tenantId: ScopedTenantId;
 }
@@ -274,8 +274,7 @@ export interface Filtered {
     /**
      * The moment the row was deleted; null while it is live.
      *
-     * @queryFilter default=isNull
-     * @queryWhere isNull isNotNull
+     * @queryFilter default=isNull ops=eq,isNull,isNotNull
      */
     deletedAt?: Date;
 }
@@ -616,13 +615,15 @@ describe("buildZodModel queries", () => {
         expect(queryThing?.schemaName).toBe("queryThingSchema");
     });
 
-    it("resolves @queryFilter fields as optional sets", () => {
+    it("resolves a @queryFilter field into one equality comparison", () => {
         const { model } = generate({ entities: { Thing: THING } });
         const queryThing = model.queries.find((query) => query.entity === "Thing");
 
-        expect(queryThing?.filterFields).toEqual([
-            { name: "id", expression: 'z.array(primitives.brandedIdSchema<"ThingId">()).exactOptional()' },
-        ]);
+        expect(queryThing?.whereFields).toContainEqual({
+            name: "id",
+            operators: ["eq"],
+            expression: 'primitives.brandedIdSchema<"ThingId">()',
+        });
         expect(queryThing?.usesPrimitives).toBe(true);
     });
 
@@ -630,27 +631,9 @@ describe("buildZodModel queries", () => {
         const { model } = generate({ entities: { Thing: THING } });
         const queryChild = model.queries.find((query) => query.entity === "Child");
 
-        expect(queryChild?.filterFields).toEqual([
-            { name: "id", expression: 'z.array(primitives.brandedIdSchema<"ChildId">()).exactOptional()' },
+        expect(queryChild?.whereFields).toEqual([
+            { name: "id", operators: ["eq"], expression: 'primitives.brandedIdSchema<"ChildId">()' },
         ]);
-    });
-
-    it("leaves a required filter's set required, and names it on the query", () => {
-        const { model } = generate({ entities: { Thing: THING, Scoped: SCOPED } });
-        const queryScoped = model.queries.find((query) => query.entity === "Scoped");
-
-        expect(queryScoped?.filterFields).toEqual([
-            { name: "id", expression: 'z.array(primitives.brandedIdSchema<"ScopedId">()).exactOptional()' },
-            { name: "tenantId", expression: 'z.array(primitives.brandedIdSchema<"ScopedTenantId">())' },
-        ]);
-        expect(queryScoped?.requiredFilterFields).toEqual(["tenantId"]);
-    });
-
-    it("records no required filter when every filter is optional", () => {
-        const { model } = generate({ entities: { Thing: THING } });
-        const queryThing = model.queries.find((query) => query.entity === "Thing");
-
-        expect(queryThing?.requiredFilterFields).toEqual([]);
     });
 
     it("records the orderable fields", () => {
@@ -668,32 +651,23 @@ describe("buildZodModel queries", () => {
         const queryChild = model.queries.find((query) => query.entity === "Child");
 
         expect(queryThing?.whereFields).toEqual([
+            { name: "id", operators: ["eq"], expression: 'primitives.brandedIdSchema<"ThingId">()' },
             { name: "amount", operators: ["gte", "lte"], expression: "primitives.moneySchema" },
         ]);
-        expect(queryChild?.whereFields).toEqual([]);
+        expect(queryChild?.whereFields).toEqual([
+            { name: "id", operators: ["eq"], expression: 'primitives.brandedIdSchema<"ChildId">()' },
+        ]);
     });
 
-    it("lets a nullable filter take a null test as well as a set", () => {
+    it("carries the operators a nullable column's ops= names", () => {
         const { model } = generate({ entities: { Filtered: FILTERED } });
         const queryFiltered = model.queries.find((query) => query.entity === "Filtered");
 
-        expect(queryFiltered?.filterFields).toEqual([
-            { name: "id", expression: 'z.array(primitives.brandedIdSchema<"FilteredId">()).exactOptional()' },
-            {
-                name: "deletedAt",
-                expression:
-                    "z.union([z.array(z.date()), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })]).exactOptional()",
-            },
-        ]);
-    });
-
-    it("keeps a not-null filter a plain set, since it has no nulls to test", () => {
-        const { model } = generate({ entities: { Thing: THING } });
-        const queryThing = model.queries.find((query) => query.entity === "Thing");
-
-        expect(queryThing?.filterFields).toEqual([
-            { name: "id", expression: 'z.array(primitives.brandedIdSchema<"ThingId">()).exactOptional()' },
-        ]);
+        expect(queryFiltered?.whereFields).toContainEqual({
+            name: "deletedAt",
+            operators: ["eq", "isNull", "isNotNull"],
+            expression: "z.date()",
+        });
     });
 });
 
@@ -709,15 +683,15 @@ describe("generateQueryFile", () => {
             "        children: z.union([z.literal(true), z.lazy(() => queryChildSchema)]).exactOptional(),",
         );
         expect(code).toContain("export const queryThingSchema = z.strictObject({");
-        expect(code).toContain("    filter: z.strictObject({");
-        expect(code).toContain('        id: z.array(primitives.brandedIdSchema<"ThingId">()).exactOptional(),');
-        expect(code).toContain("    }).exactOptional(),");
         expect(code).toContain("    order: z.array(");
         expect(code).toContain('        z.tuple([z.enum(["name", "amount"]), z.enum(["asc", "desc"])]),');
-        expect(code).toContain("    where: z.strictObject({");
-        expect(code).toContain("        amount: z.strictObject({");
-        expect(code).toContain("            gte: primitives.moneySchema.exactOptional(),");
-        expect(code).toContain("            lte: primitives.moneySchema.exactOptional(),");
+        expect(code).toContain("    filters: z.array(");
+        expect(code).toContain(
+            '        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"ThingId">().exactOptional() }) })',
+        );
+        expect(code).toContain(
+            "z.strictObject({ amount: z.union([z.strictObject({ gte: primitives.moneySchema.exactOptional() }), z.strictObject({ lte: primitives.moneySchema.exactOptional() })]) })",
+        );
         expect(code).toContain("    limit: z.number().int().positive().exactOptional(),");
         expect(code).toContain("    offset: z.number().int().nonnegative().exactOptional(),");
         expect(code).toContain("    select: queryThingSelectSchema,");
@@ -731,17 +705,15 @@ describe("generateQueryFile", () => {
         expect(code).not.toContain("getThingSchema");
     });
 
-    it("emits a null test beside the set for a nullable filter, and a literal value for a null comparison", () => {
+    it("emits one strict object per filter entry, with a null test carrying no value", () => {
         const { model } = generate({ entities: { Filtered: FILTERED } });
         const byName = new Map(model.entities.map((entity) => [entity.name, entity]));
         const queries = model.queries.filter((query) => query.entity === "Filtered");
         const code = generateQueryFile("Filtered", queries, byName);
 
         expect(code).toContain(
-            '        deletedAt: z.union([z.array(z.date()), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })]).exactOptional(),',
+            'z.strictObject({ deletedAt: z.union([z.strictObject({ eq: z.date().exactOptional() }), z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) })',
         );
-        expect(code).toContain("            isNull: z.literal(true).exactOptional(),");
-        expect(code).toContain("            isNotNull: z.literal(true).exactOptional(),");
     });
 
     it("accepts a null test in a filter and rejects a value where the test belongs", () => {
@@ -758,43 +730,24 @@ describe("generateQueryFile", () => {
             }),
         );
 
-        expect(
-            exports.queryFilteredSchema?.safeParse({ filter: { deletedAt: { isNotNull: true } }, select: {} })
-                .success,
-        ).toBe(true);
-        expect(
-            exports.queryFilteredSchema?.safeParse({ filter: { deletedAt: { isNull: true } }, select: {} }).success,
-        ).toBe(true);
-        expect(
-            exports.queryFilteredSchema?.safeParse({ filter: { deletedAt: { isNull: false } }, select: {} }).success,
-        ).toBe(false);
-        expect(
-            exports.queryFilteredSchema?.safeParse({ filter: { deletedAt: { isMaybe: true } }, select: {} }).success,
-        ).toBe(false);
-        expect(
-            exports.queryFilteredSchema?.safeParse({ filter: { deletedAt: { isNull: true, isNotNull: true } }, select: {} })
-                .success,
-        ).toBe(false);
-        expect(
-            exports.queryFilteredSchema?.safeParse({ where: { deletedAt: { isNotNull: true } }, select: {} }).success,
-        ).toBe(true);
-        expect(
-            exports.queryFilteredSchema?.safeParse({ where: { deletedAt: { isNotNull: "yes" } }, select: {} }).success,
-        ).toBe(false);
+        const parses = (filters: unknown[]) =>
+            exports.queryFilteredSchema?.safeParse({
+                filters: filters.map((filter) => filter),
+                select: {},
+            }).success;
+
+        expect(parses([{ deletedAt: { isNotNull: true } }])).toBe(true);
+        expect(parses([{ deletedAt: { isNull: true } }])).toBe(true);
+        expect(parses([{ deletedAt: { isNull: false } }])).toBe(false);
+        expect(parses([{ deletedAt: { isMaybe: true } }])).toBe(false);
+        expect(parses([{ deletedAt: { isNull: true, isNotNull: true } }])).toBe(false);
+        // One entry names one column, so a filter that names two is refused.
+        expect(parses([{ deletedAt: { eq: new Date() }, id: { eq: "x" } }])).toBe(false);
+        // A column at a time: two entries may name one column twice.
+        expect(parses([{ deletedAt: { eq: new Date() } }, { deletedAt: { isNull: true } }])).toBe(true);
     });
 
-    it("requires the filter object when the entity requires a filter", () => {
-        const { model } = generate({ entities: { Thing: THING, Scoped: SCOPED } });
-        const byName = new Map(model.entities.map((entity) => [entity.name, entity]));
-        const queries = model.queries.filter((query) => query.entity === "Scoped");
-        const code = generateQueryFile("Scoped", queries, byName);
-
-        expect(code).toContain('        tenantId: z.array(primitives.brandedIdSchema<"ScopedTenantId">()),');
-        expect(code).toContain('        id: z.array(primitives.brandedIdSchema<"ScopedId">()).exactOptional(),');
-        expect(code).not.toContain("}).exactOptional(),");
-    });
-
-    it("rejects a read that leaves out a required filter", () => {
+    it("accepts one filter per column and refuses an entry that names two", () => {
         const { model } = generate({ entities: { Thing: THING, Scoped: SCOPED } });
         const byName = new Map(model.entities.map((entity) => [entity.name, entity]));
         const queries = model.queries.filter((query) => query.entity === "Scoped");
@@ -807,41 +760,15 @@ describe("generateQueryFile", () => {
                 "../primitives.ts": { brandedIdSchema: () => z.string() },
             }),
         );
+        const parses = (filters: unknown[]) => exports.queryScopedSchema?.safeParse({ filters, select: {} }).success;
 
-        expect(exports.queryScopedSchema?.safeParse({ filter: { tenantId: ["t1"] }, select: {} }).success).toBe(
-            true,
-        );
-        expect(
-            exports.queryScopedSchema?.safeParse({ filter: { id: ["x"], tenantId: ["t1"] }, select: {} }).success,
-        ).toBe(true);
-        // The filter object, the required set, and the set shape are all mandatory.
-        expect(exports.queryScopedSchema?.safeParse({ select: {} }).success).toBe(false);
-        expect(exports.queryScopedSchema?.safeParse({ filter: {}, select: {} }).success).toBe(false);
-        expect(exports.queryScopedSchema?.safeParse({ filter: { id: ["x"] }, select: {} }).success).toBe(false);
-        expect(exports.queryScopedSchema?.safeParse({ filter: { tenantId: "t1" }, select: {} }).success).toBe(
-            false,
-        );
-    });
-
-    it("imports the primitives module it references", () => {
-        const { files } = generate({ entities: { Thing: THING } });
-        const code = files.get(join("queries", "queryThing.ts")) ?? "";
-
-        expect(code).toContain('import * as primitives from "../primitives.ts";');
-    });
-
-    it("re-exports every query file from a barrel", () => {
-        const { files } = generate({ entities: { Thing: THING } });
-        const code = files.get(join("queries", "index.ts")) ?? "";
-
-        expect(code).toContain('export * from "./queryThing.ts";');
-    });
-
-    it("re-exports the queries barrel from the schema barrel", () => {
-        const { files } = generate({ entities: { Thing: THING } });
-        const code = files.get("schemas.ts") ?? "";
-
-        expect(code).toContain('export * from "./queries/index.ts";');
+        expect(parses([{ tenantId: { eq: "t1" } }])).toBe(true);
+        expect(parses([{ tenantId: { eq: "t1" } }, { id: { eq: "x" } }])).toBe(true);
+        // Two entries may name one column twice, since the list is combined with `and`.
+        expect(parses([{ tenantId: { eq: "t1" } }, { tenantId: { eq: "t2" } }])).toBe(true);
+        expect(parses([{ id: { eq: "x" }, tenantId: { eq: "t1" } }])).toBe(false);
+        // A comparison the column's ops= does not name is refused.
+        expect(parses([{ id: { gte: "x" } }])).toBe(false);
     });
 
     it("evaluates to a working args schema", () => {
@@ -861,10 +788,11 @@ describe("generateQueryFile", () => {
         );
 
         expect(exports.queryThingSchema?.safeParse({ select: {} }).success).toBe(true);
-        expect(exports.queryThingSchema?.safeParse({ filter: { id: ["x"] }, select: {} }).success).toBe(true);
-        // A flat filter field and a non-array value are both rejected by the nested strict object.
-        expect(exports.queryThingSchema?.safeParse({ id: ["x"], select: {} }).success).toBe(false);
-        expect(exports.queryThingSchema?.safeParse({ filter: { id: "x" }, select: {} }).success).toBe(false);
+        expect(exports.queryThingSchema?.safeParse({ filters: [{ id: { eq: "x" } }], select: {} }).success).toBe(true);
+        // A flat filter field and a set where one comparison belongs are both rejected.
+        expect(exports.queryThingSchema?.safeParse({ id: { eq: "x" }, select: {} }).success).toBe(false);
+        expect(exports.queryThingSchema?.safeParse({ filters: [{ id: ["x"] }], select: {} }).success).toBe(false);
+        expect(exports.queryThingSchema?.safeParse({ filters: { id: { eq: "x" } }, select: {} }).success).toBe(false);
         expect(exports.queryThingSchema?.safeParse({ order: [["name", "asc"]], select: {} }).success).toBe(true);
         expect(exports.queryThingSchema?.safeParse({ order: [["amount", "desc"]], select: {} }).success).toBe(true);
         // An unknown field and an unknown direction are both rejected before they reach SQL.
@@ -878,13 +806,15 @@ describe("generateQueryFile", () => {
         expect(exports.queryThingSchema?.safeParse({ offset: -1, select: {} }).success).toBe(false);
         expect(exports.queryThingSchema?.safeParse({ limit: 1.5, select: {} }).success).toBe(false);
         // Comparisons are whitelisted by field and operator, so a stray one is a 400.
-        expect(exports.queryThingSchema?.safeParse({ where: { amount: { gte: "1" } }, select: {} }).success).toBe(
-            true,
-        );
-        expect(exports.queryThingSchema?.safeParse({ where: { amount: { gt: "1" } }, select: {} }).success).toBe(
-            false,
-        );
-        expect(exports.queryThingSchema?.safeParse({ where: { name: { eq: "x" } }, select: {} }).success).toBe(false);
+        expect(
+            exports.queryThingSchema?.safeParse({ filters: [{ amount: { gte: "1" } }], select: {} }).success,
+        ).toBe(true);
+        expect(
+            exports.queryThingSchema?.safeParse({ filters: [{ amount: { gt: "1" } }], select: {} }).success,
+        ).toBe(false);
+        expect(
+            exports.queryThingSchema?.safeParse({ filters: [{ name: { eq: "x" } }], select: {} }).success,
+        ).toBe(false);
     });
 });
 

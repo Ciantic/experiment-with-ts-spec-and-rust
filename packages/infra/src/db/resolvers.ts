@@ -32,8 +32,6 @@ export interface QueryTable {
     fields: Record<string, string>;
     /** Branch fields, mapped to how they are joined or flattened. */
     relations: Record<string, QueryRelation>;
-    /** Filter fields a read must name, from `@queryFilter required`; absent when the entity marks none. See docs/queries.md. */
-    requiredFilters?: string[];
     /** Orderable field names; absent when the entity marks none. See docs/queries.md. */
     order?: string[];
     /** The entity's default ordering, applied to a read that names none. See docs/queries.md. */
@@ -55,17 +53,21 @@ export interface QueryModel {
 /** One ordering clause, as a read passes it: `[field, direction]`. See docs/queries.md. */
 export type OrderClause = [field: string, direction: Direction];
 
-/** One field's comparisons, as a read passes them: `{ gte: …, lte: … }`. See docs/queries.md. */
-export type WhereClause = Record<string, Record<string, unknown>>;
+/** One filter, as a read passes it: one column with one comparison, e.g. `{ issueDate: { gte: … } }`. See docs/queries.md. */
+export type FilterClause = Record<string, Record<string, unknown>>;
 
-/** The SQL operator each comparison maps to. */
+/** The SQL operator each single-value comparison maps to. */
 const COMPARISON_SQL: Record<string, string> = {
     eq: "=",
-    ne: "<>",
+    neq: "<>",
     gt: ">",
     gte: ">=",
     lt: "<",
     lte: "<=",
+    like: "like",
+    ilike: "ilike",
+    notLike: "not like",
+    notIlike: "not ilike",
 };
 
 /** What a read selects and filters on, as the generated function passes it. */
@@ -77,8 +79,8 @@ export interface ResolveOptions<E, S extends Selection<E>> {
     limit?: number | undefined;
     /** The number of leading rows a root read skips; absent means 0. See docs/queries.md. */
     offset?: number | undefined;
-    /** Comparison arguments; each field is restricted to its `@queryWhere` operators. See docs/queries.md. */
-    where?: WhereClause | undefined;
+    /** The filters, combined with `and`; each column is restricted to its `@queryFilter ops=`. See docs/queries.md. */
+    filters?: readonly FilterClause[] | undefined;
 }
 
 /** The rows a root read returns when it names no `limit`. See docs/queries.md. */
@@ -136,7 +138,6 @@ export interface Resolver {
     resolveMany<E, S extends Selection<E>>(
         db: SqlExecutor,
         table: string,
-        args: Record<string, unknown>,
         opts: ResolveOptions<E, S>,
     ): Promise<Selected<E, S>[]>;
 }
@@ -189,9 +190,8 @@ function allScalars(meta: QueryTable): Record<string, unknown> {
 /** A branch's value: `true` for every scalar, or the read arguments it carries. See docs/queries.md. */
 interface BranchRead {
     select: Record<string, unknown>;
-    args: Record<string, unknown>;
+    filters: readonly FilterClause[];
     order?: OrderClause[] | undefined;
-    where?: WhereClause | undefined;
     page?: Page | undefined;
 }
 
@@ -201,7 +201,7 @@ interface BranchRead {
  */
 function branchRead(meta: QueryTable, value: unknown, path: string): BranchRead {
     if (value === true) {
-        return { select: allScalars(meta), args: {} };
+        return { select: allScalars(meta), filters: [] };
     }
     const args = (value ?? {}) as Record<string, unknown>;
     const select = args.select;
@@ -210,9 +210,8 @@ function branchRead(meta: QueryTable, value: unknown, path: string): BranchRead 
     }
     return {
         select: select as Record<string, unknown>,
-        args: (args.filter as Record<string, unknown> | undefined) ?? {},
+        filters: (args.filters as readonly FilterClause[] | undefined) ?? [],
         order: args.order as OrderClause[] | undefined,
-        where: args.where as WhereClause | undefined,
         page: branchPage(args.limit as number | undefined, args.offset as number | undefined, path),
     };
 }
@@ -352,55 +351,119 @@ const NULL_COMPARISON_SQL: Record<string, string> = {
     isNotNull: "is not null",
 };
 
-/** A filter's null test, when the value is one; undefined for a set or a malformed value. See docs/queries.md. */
-function nullFilterTest(value: unknown): "is null" | "is not null" | undefined {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
+/** The comparison operators that compare the column with a list of values. */
+const LIST_COMPARISON_SQL: Record<string, string> = {
+    in: "in",
+    notIn: "not in",
+};
+
+/** The comparison operators that compare the column with a list bound as one array parameter. */
+const ARRAY_COMPARISON_SQL: Record<string, string> = {
+    any: "= any",
+    notAny: "<> all",
+};
+
+/** The comparison operators that bound the column with two values. */
+const RANGE_COMPARISON_SQL: Record<string, string> = {
+    between: "between",
+    notBetween: "not between",
+};
+
+/**
+ * One filter's clauses: each comparison on its column becomes one `and`ed condition.
+ * @throws {QueryError} when the filter names no column, an operator the column does not allow, or a value of the wrong shape
+ */
+function filterClauses(table: string, meta: QueryTable, filter: FilterClause, params: unknown[]): string[] {
+    const clauses: string[] = [];
+    for (const [field, comparison] of Object.entries(filter)) {
+        if (comparison === undefined || comparison === null) {
+            continue;
+        }
+        const column = meta.fields[field];
+        if (column === undefined) {
+            throw new QueryError(`unknown filter field \`${field}\` on \`${table}\``);
+        }
+        if (typeof comparison !== "object" || Array.isArray(comparison)) {
+            throw new QueryError(`filter \`${field}\` on \`${table}\` must be an object of comparisons`);
+        }
+        const allowed = meta.where?.[field] ?? [];
+        for (const [operator, value] of Object.entries(comparison)) {
+            if (value === undefined) {
+                continue;
+            }
+            if (!allowed.includes(operator)) {
+                throw new QueryError(`filter operator \`${operator}\` is not allowed on \`${field}\` of \`${table}\``);
+            }
+            clauses.push(comparisonClause(table, field, column, operator, value, params));
+        }
     }
-    const entries = Object.entries(value);
-    if (entries.length !== 1) {
-        return undefined;
-    }
-    const [name, test] = entries[0] as [string, unknown];
-    if (test !== true) {
-        return undefined;
-    }
-    if (name === "isNull") {
-        return "is null";
-    }
-    if (name === "isNotNull") {
-        return "is not null";
-    }
-    return undefined;
+    return clauses;
 }
 
 /**
- * One argument's clause: a set (`column = any($n)`), or a null test. See docs/queries.md.
- * @throws {QueryError} when the filter names no column, or its value is neither an array nor a null test
+ * One comparison's condition, rendered as the query builder renders it. See docs/queries.md.
+ * @throws {QueryError} when the operator's value has the wrong shape
  */
-function argumentClause(
+function comparisonClause(
     table: string,
-    meta: QueryTable,
-    name: string,
+    field: string,
+    column: string,
+    operator: string,
     value: unknown,
     params: unknown[],
 ): string {
-    const column = meta.fields[name];
-    if (column === undefined) {
-        throw new QueryError(`unknown filter field \`${name}\` on \`${table}\``);
+    const qualified = `${TABLE_ALIAS}.${quote(column)}`;
+    const nullSql = NULL_COMPARISON_SQL[operator];
+    if (nullSql !== undefined) {
+        if (value !== true) {
+            throw new QueryError(`filter \`${operator}\` on \`${field}\` of \`${table}\` takes \`true\``);
+        }
+        return `${qualified} ${nullSql}`;
     }
-    const nullTest = nullFilterTest(value);
-    if (nullTest !== undefined) {
-        return `${TABLE_ALIAS}.${quote(column)} ${nullTest}`;
+    const single = COMPARISON_SQL[operator];
+    if (single !== undefined) {
+        params.push(value);
+        return `${qualified} ${single} $${params.length}`;
     }
+    const listSql = LIST_COMPARISON_SQL[operator];
+    if (listSql !== undefined) {
+        const values = comparisonValues(table, field, operator, value);
+        // An empty `in` list matches nothing, and an empty `not in` list matches everything.
+        if (values.length === 0) {
+            return operator === "in" ? "false" : "true";
+        }
+        const placeholders = values.map((element) => {
+            params.push(element);
+            return `$${params.length}`;
+        });
+        return `${qualified} ${listSql} (${placeholders.join(", ")})`;
+    }
+    const arraySql = ARRAY_COMPARISON_SQL[operator];
+    if (arraySql !== undefined) {
+        params.push(comparisonValues(table, field, operator, value));
+        return `${qualified} ${arraySql}($${params.length})`;
+    }
+    const rangeSql = RANGE_COMPARISON_SQL[operator];
+    if (rangeSql !== undefined) {
+        const values = comparisonValues(table, field, operator, value);
+        if (values.length !== 2) {
+            throw new QueryError(`filter \`${operator}\` on \`${field}\` of \`${table}\` takes exactly two values`);
+        }
+        params.push(values[0], values[1]);
+        return `${qualified} ${rangeSql} $${params.length - 1} and $${params.length}`;
+    }
+    throw new QueryError(`unknown filter operator \`${operator}\` on \`${field}\` of \`${table}\``);
+}
+
+/**
+ * A list operator's values, as a read passes them.
+ * @throws {QueryError} when the value is not an array
+ */
+function comparisonValues(table: string, field: string, operator: string, value: unknown): unknown[] {
     if (!Array.isArray(value)) {
-        throw new QueryError(`filter \`${name}\` on \`${table}\` must be an array or a null test`);
+        throw new QueryError(`filter \`${operator}\` on \`${field}\` of \`${table}\` takes an array`);
     }
-    const values = distinct(value);
-    if (values.length === 0) {
-        return "false";
-    }
-    return inSet(column, values, params);
+    return value;
 }
 
 /**
@@ -428,60 +491,14 @@ function defaultClause(
     return `${TABLE_ALIAS}.${quote(column)} = $${params.length}`;
 }
 
-/**
- * The comparison clauses for a read, one `column <op> $n` per whitelisted operator; a null test binds nothing.
- * @throws {QueryError} when the where names no column, or an operator the field does not allow or a null test that is not `true`
- */
-function whereClauses(table: string, meta: QueryTable, where: WhereClause, params: unknown[]): string[] {
-    const clauses: string[] = [];
-    for (const [field, condition] of Object.entries(where)) {
-        if (condition === undefined) {
-            continue;
-        }
-        const column = meta.fields[field];
-        if (column === undefined) {
-            throw new QueryError(`unknown where field \`${field}\` on \`${table}\``);
-        }
-        const allowed = meta.where?.[field] ?? [];
-        const parts: string[] = [];
-        for (const [operator, value] of Object.entries(condition)) {
-            if (value === undefined) {
-                continue;
-            }
-            const nullOperator = NULL_COMPARISON_SQL[operator];
-            if (nullOperator !== undefined) {
-                if (!allowed.includes(operator)) {
-                    throw new QueryError(`where operator \`${operator}\` is not allowed on \`${field}\` of \`${table}\``);
-                }
-                if (value !== true) {
-                    throw new QueryError(`where operator \`${operator}\` on \`${field}\` of \`${table}\` takes \`true\``);
-                }
-                parts.push(`${TABLE_ALIAS}.${quote(column)} ${nullOperator}`);
-                continue;
-            }
-            const sqlOperator = COMPARISON_SQL[operator];
-            if (sqlOperator === undefined || !allowed.includes(operator)) {
-                throw new QueryError(`where operator \`${operator}\` is not allowed on \`${field}\` of \`${table}\``);
-            }
-            params.push(value);
-            parts.push(`${TABLE_ALIAS}.${quote(column)} ${sqlOperator} $${params.length}`);
-        }
-        if (parts.length > 0) {
-            clauses.push(`(${parts.join(" and ")})`);
-        }
-    }
-    return clauses;
-}
-
 /** What a fetch reads: the projection, the filter arguments, and the paging/ordering of one read. */
 interface FetchRead {
     select: Record<string, unknown>;
-    /** The filter arguments: a root read's, or a branch's own. */
-    args: Record<string, unknown>;
+    /** The filters: a root read's, or a branch's own. */
+    filters: readonly FilterClause[];
     /** A branch's link to its parents: the column and the parent values to match. */
     match?: { column: string; values: unknown[] } | undefined;
     order?: OrderClause[] | undefined;
-    where?: WhereClause | undefined;
     page?: Page | undefined;
 }
 
@@ -500,27 +517,23 @@ function buildClauses(table: string, meta: QueryTable, read: FetchRead): Clauses
         filters.push(inSet(read.match.column, read.match.values, params));
     }
 
-    // A required filter is an invariant: a read that omits one throws instead of scanning unscoped.
-    for (const name of meta.requiredFilters ?? []) {
-        if (read.args[name] === undefined) {
-            throw new QueryError(`filter \`${name}\` is required on \`${table}\``);
+    const named = new Set<string>();
+    for (const filter of read.filters) {
+        for (const field of Object.keys(filter)) {
+            if (filter[field] !== undefined && filter[field] !== null) {
+                named.add(field);
+            }
         }
     }
-    for (const [name, value] of Object.entries(read.args)) {
-        if (value === undefined) {
-            continue;
-        }
-        filters.push(argumentClause(table, meta, name, value, params));
+    for (const filter of read.filters) {
+        filters.push(...filterClauses(table, meta, filter, params));
     }
     // A filter a read leaves out falls back to its default; a comparison on the field overrides it.
     for (const [name, value] of Object.entries(meta.filterDefaults ?? {})) {
-        if (read.args[name] !== undefined || read.where?.[name] !== undefined) {
+        if (named.has(name)) {
             continue;
         }
         filters.push(defaultClause(table, meta, name, value, params));
-    }
-    if (read.where) {
-        filters.push(...whereClauses(table, meta, read.where, params));
     }
 
     return {
@@ -726,14 +739,12 @@ export function createResolver(model: QueryModel): Resolver {
     async function resolveMany<E, S extends Selection<E>>(
         db: SqlExecutor,
         table: string,
-        args: Record<string, unknown>,
         opts: ResolveOptions<E, S>,
     ): Promise<Selected<E, S>[]> {
         const rows = await fetchRows(model, db, table, {
             select: opts.select as Record<string, unknown>,
-            args,
+            filters: opts.filters ?? [],
             order: opts.order,
-            where: opts.where,
             page: resolvePage(opts.limit, opts.offset),
         });
         return rows.map((row) => row.value) as unknown as Selected<E, S>[];

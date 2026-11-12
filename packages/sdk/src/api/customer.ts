@@ -22,7 +22,7 @@ export type QueryCustomerErrors =
     | HttpError;
 
 /**
- * Query `Customer` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `Customer` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -33,7 +33,7 @@ export type QueryCustomerErrors =
  */
 export function queryCustomer<S extends Selection<Customer>>(
     opts: {
-        filter?: Filters<Customer, "id" | "tenantId">;
+        filters?: Filters<Customer, { id: "eq"; tenantId: "eq" }>;
         limit?: number;
         offset?: number;
         select: S;

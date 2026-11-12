@@ -86,7 +86,7 @@ export interface Legacy {
             "`Legacy`: @table is retired; use @pgTable instead",
             "`source`: @default is retired; use @pgDefault instead",
             "`source`: @pgtype is retired; use @pgType instead",
-            "`source`: @where is retired; use @queryWhere instead",
+            "`source`: @where is retired; use @queryFilter ops=… instead",
             "`source`: @queryorderby is retired; use @queryOrderBy instead",
             "`source`: @pgtrigger is retired; use @pgTrigger instead",
         ]);
@@ -1309,17 +1309,11 @@ export interface Thing {
         expect(findings).toEqual([]);
     });
 
-    it("accepts @queryFilter required", () => {
-        const findings = lintSourceText(field("tenantId", "required"));
-
-        expect(findings).toEqual([]);
-    });
-
-    it("rejects a value that is neither `required` nor `default=<value>`", () => {
+    it("rejects a value that names no option", () => {
         const findings = lintSourceText(field("value", "yes"));
 
         expect(messages(findings)).toEqual([
-            "`value`: @queryFilter takes no value, `required`, or `default=<value>`, found `yes`",
+            "`value`: @queryFilter takes no value, `default=<value>`, or `ops=<operator>,…`, found `yes`",
         ]);
     });
 
@@ -1359,14 +1353,6 @@ export interface Thing {
 
         expect(messages(findings)).toEqual([
             "`deletedAt`: @queryFilter spells a null default `default=isNull`, not `default=null`",
-        ]);
-    });
-
-    it("rejects a filter that is both required and defaulted", () => {
-        const findings = lintSourceText(custom("@queryFilter required default=isNull", "value?: string"));
-
-        expect(messages(findings)).toEqual([
-            "`value`: @queryFilter cannot be both `required` and defaulted",
         ]);
     });
 
@@ -1417,29 +1403,12 @@ export interface Thing {
         ]);
     });
 
-    it("rejects @queryFilter on the primary key, whose filter is optional by default", () => {
+    it("rejects @queryFilter on the primary key, which is a filter already", () => {
         const findings = lintSourceText(field("id", "@primaryKey"));
 
         expect(messages(findings)).toEqual([
-            "`id`: the primary key is a filter by default; drop @queryFilter, or write `required`",
+            "`id`: the primary key is a filter by default; drop @queryFilter",
         ]);
-    });
-
-    it("accepts @queryFilter required on the primary key, which the default cannot say", () => {
-        const findings = lintSourceText(
-            `/** @entity */
-export interface Thing {
-                /**
-                 * @fieldName ID
-                 * @widget text
-                 * @primaryKey
-                 * @queryFilter required
-                 */
-                id: string;
-            }`,
-        );
-
-        expect(findings).toEqual([]);
     });
 });
 
@@ -2084,14 +2053,14 @@ export interface Two {
     });
 });
 
-describe("@queryWhere", () => {
-    const field = (operators: string) => {
-        const where = operators === "" ? "@queryWhere" : `@queryWhere ${operators}`;
+describe("@queryFilter ops=", () => {
+    const field = (options: string) => {
+        const tag = options === "" ? "@queryFilter ops=" : `@queryFilter ${options}`;
         return `/** @entity */
 export interface Thing {
             /**
              * @fieldName Value
-             * ${where}
+             * ${tag}
              * @widget text
              */
             value: string;
@@ -2099,23 +2068,28 @@ export interface Thing {
     };
 
     it("accepts a list of known operators", () => {
-        expect(lintSourceText(field("gte lte"))).toEqual([]);
-        expect(lintSourceText(field("eq ne gt gte lt lte"))).toEqual([]);
+        expect(lintSourceText(field("ops=gte,lte"))).toEqual([]);
+        expect(lintSourceText(field("ops=eq,neq,gt,gte,lt,lte"))).toEqual([]);
+        expect(lintSourceText(field("ops=between"))).toEqual([]);
     });
 
-    it("rejects a bare @queryWhere with no operators", () => {
+    it("accepts operators however the tag orders them, since the model canonicalizes", () => {
+        expect(lintSourceText(field("ops=lte,eq,gte"))).toEqual([]);
+    });
+
+    it("rejects ops= with no operator", () => {
         const findings = lintSourceText(field(""));
 
         expect(messages(findings)).toEqual([
-            "`value`: @queryWhere requires at least one operator, one of: eq, ne, gt, gte, lt, lte, isNull, isNotNull",
+            "`value`: @queryFilter ops= needs at least one operator, one of: eq, neq, gt, gte, lt, lte, like, ilike, notLike, notIlike, in, notIn, any, notAny, isNull, isNotNull, between, notBetween",
         ]);
     });
 
-    it("rejects an unknown operator", () => {
-        const findings = lintSourceText(field("between"));
+    it("rejects an operator the vocabulary does not have", () => {
+        const findings = lintSourceText(field("ops=equal"));
 
         expect(messages(findings)).toEqual([
-            "`value`: @queryWhere `between` is not one of: eq, ne, gt, gte, lt, lte, isNull, isNotNull",
+            "`value`: @queryFilter ops= `equal` is not one of: eq, neq, gt, gte, lt, lte, like, ilike, notLike, notIlike, in, notIn, any, notAny, isNull, isNotNull, between, notBetween",
         ]);
     });
 
@@ -2125,7 +2099,7 @@ export interface Thing {
 export interface Thing {
                 /**
                  * @fieldName Value
-                 * @queryWhere isNull isNotNull
+                 * @queryFilter ops=isNull,isNotNull
                  * @widget date
                  */
                 value?: Date;
@@ -2136,20 +2110,20 @@ export interface Thing {
     });
 
     it("rejects a null test on a field whose column is not nullable", () => {
-        const findings = lintSourceText(field("eq isNotNull"));
+        const findings = lintSourceText(field("ops=eq,isNotNull"));
 
         expect(messages(findings)).toEqual([
-            "`value`: @queryWhere `isNotNull` needs an optional field, whose column is nullable",
+            "`value`: @queryFilter ops=isNotNull needs an optional field, whose column is nullable",
         ]);
     });
 
-    it("rejects @queryWhere on a relation field", () => {
+    it("rejects ops= on a relation field", () => {
         const findings = lintSourceText(
             `/** @entity */
 export interface Thing {
                 /**
                  * @fieldName Owner
-                 * @queryWhere eq
+                 * @queryFilter ops=eq
                  * @widget select
                  * @relation
                  */
@@ -2157,7 +2131,9 @@ export interface Thing {
             }`,
         );
 
-        expect(messages(findings)).toEqual(["`owner`: @queryWhere must be on a scalar field, not a @relation field"]);
+        expect(messages(findings)).toEqual([
+            "`owner`: @queryFilter must be on a scalar field, not a @relation field",
+        ]);
     });
 });
 
@@ -2751,14 +2727,14 @@ describe("tenancy tags", () => {
     /** The owned column: a required filter over the link to `target`, which @tenantOwned makes mandatory. */
     const ownedLink = (target: string, options = ""): string =>
         field(
-            ["@fieldName Owner ID", "@widget text", "@queryFilter required", `@foreignKey ${target}${options}`],
+            ["@fieldName Owner ID", "@widget text", "@queryFilter", `@foreignKey ${target}${options}`],
             "ownerId: string;",
         );
 
     /** The optionally owned column: the same link, with the tenant null on a global row. */
     const optionalOwnedLink = (target: string, options = ""): string =>
         field(
-            ["@fieldName Owner ID", "@widget text", "@queryFilter required", `@foreignKey ${target}${options}`],
+            ["@fieldName Owner ID", "@widget text", "@queryFilter", `@foreignKey ${target}${options}`],
             "ownerId?: string;",
         );
 
@@ -2973,7 +2949,7 @@ export interface Thing {
     /**
      * @fieldName Owner ID
      * @widget text
-     * @queryFilter required
+     * @queryFilter
      * @foreignKey Alpha
      */
     ownerId: string;
@@ -3059,7 +3035,7 @@ export interface Thing {
                 "/src/domain/Thing.ts": entity(
                     "Thing",
                     ["tenantOwned ownerId"],
-                    `${key}\n\n${field(["@fieldName Owner ID", "@widget text", "@queryFilter required", "@foreignKey Alpha"], "ownerId?: string;")}`,
+                    `${key}\n\n${field(["@fieldName Owner ID", "@widget text", "@queryFilter", "@foreignKey Alpha"], "ownerId?: string;")}`,
                 ),
             }),
         );
@@ -3076,7 +3052,7 @@ export interface Thing {
                 "/src/domain/Thing.ts": entity(
                     "Thing",
                     ["tenantOwned ownerId"],
-                    `${key}\n\n${field(["@fieldName Owner ID", "@widget text", "@queryFilter required"], "ownerId: string;")}`,
+                    `${key}\n\n${field(["@fieldName Owner ID", "@widget text", "@queryFilter"], "ownerId: string;")}`,
                 ),
             }),
         );
@@ -3110,7 +3086,7 @@ export interface Thing {
                 "/src/domain/Thing.ts": entity(
                     "Thing",
                     ["tenantOwned ownerId"],
-                    `${key}\n\n${field(["@fieldName Owner ID", "@widget text", "@queryFilter required"], "ownerId: string;")}`,
+                    `${key}\n\n${field(["@fieldName Owner ID", "@widget text", "@queryFilter"], "ownerId: string;")}`,
                 ),
             }),
         );
@@ -3196,7 +3172,7 @@ export interface Thing {
                 "/src/domain/Gadget.ts": entity(
                     "Gadget",
                     [],
-                    `${key}\n\n${field(["@fieldName Alpha ID", "@widget text", "@queryFilter required", "@foreignKey Alpha"], "alphaId: string;")}`,
+                    `${key}\n\n${field(["@fieldName Alpha ID", "@widget text", "@queryFilter", "@foreignKey Alpha"], "alphaId: string;")}`,
                 ),
             }),
         );

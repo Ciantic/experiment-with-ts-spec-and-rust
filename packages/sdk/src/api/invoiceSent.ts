@@ -22,7 +22,7 @@ export type QueryInvoiceSentErrors =
     | HttpError;
 
 /**
- * Query `InvoiceSent` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `InvoiceSent` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -33,7 +33,7 @@ export type QueryInvoiceSentErrors =
  */
 export function queryInvoiceSent<S extends Selection<InvoiceSent>>(
     opts: {
-        filter?: Filters<InvoiceSent, "id" | "tenantId">;
+        filters?: Filters<InvoiceSent, { id: "eq"; tenantId: "eq" }>;
         limit?: number;
         offset?: number;
         select: S;

@@ -2,7 +2,13 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SDK_PACKAGE_ROOT } from "../paths.ts";
-import { isNullOperator, loadSpec, lowerFirst, type SpecModel } from "../spec/spec-model.ts";
+import {
+    loadSpec,
+    lowerFirst,
+    operatorArity,
+    type QueryOperator,
+    type SpecModel,
+} from "../spec/spec-model.ts";
 import {
     buildZodModel,
     querySchemaName,
@@ -12,6 +18,7 @@ import {
     type ZodPrimitive,
     type ZodQuery,
     type ZodWatch,
+    type ZodWhereField,
 } from "./zod-model.ts";
 
 /** The channels a run reports on: the console, or a caller's own sink. */
@@ -188,16 +195,6 @@ export function generateQueryFile(
     for (const query of queries) {
         lines.push("");
         lines.push(`export const ${query.schemaName} = z.strictObject({`);
-        // The filter is its own object so a data field can never collide with `select`.
-        if (query.filterFields.length > 0) {
-            // A required filter makes the object mandatory: a read may not leave out what it must name.
-            const filterOptional = query.requiredFilterFields.length === 0;
-            lines.push("    filter: z.strictObject({");
-            for (const field of query.filterFields) {
-                lines.push(`        ${field.name}: ${field.expression},`);
-            }
-            lines.push(`    })${filterOptional ? ".exactOptional()" : ""},`);
-        }
         // Ordering is whitelisted by `@queryOrderBy`, so an unknown field fails rather than reaching SQL.
         if (query.orderFields.length > 0) {
             const names = query.orderFields.map((field) => JSON.stringify(field)).join(", ");
@@ -206,25 +203,42 @@ export function generateQueryFile(
             lines.push(`        z.tuple([z.enum([${names}]), z.enum(["asc", "desc"])]),`);
             lines.push("    ).exactOptional(),");
         }
-        // Comparisons are whitelisted by `@queryWhere`: a field and an operator are both checked here.
+        // A filter names one column and one comparison; the list is `and`ed, so a column may appear twice.
         if (query.whereFields.length > 0) {
-            lines.push("    where: z.strictObject({");
-            for (const field of query.whereFields) {
-                lines.push(`        ${field.name}: z.strictObject({`);
-                for (const operator of field.operators) {
-                    // A null test takes `true`; every other operator takes a value of the field's type.
-                    const expression = isNullOperator(operator) ? "z.literal(true)" : field.expression;
-                    lines.push(`            ${operator}: ${expression}.exactOptional(),`);
-                }
-                lines.push("        }).exactOptional(),");
-            }
-            lines.push("    }).exactOptional(),");
+            lines.push("    filters: z.array(");
+            lines.push(`        z.union([${query.whereFields.map(filterEntry).join(", ")}]),`);
+            lines.push("    ).exactOptional(),");
         }
         lines.push(...PAGING_FIELDS);
         lines.push(`    select: ${entitySchema ? entitySchema.querySelectName : "z.never()"},`);
         lines.push("});");
     }
     return lines.join("\n") + "\n";
+}
+
+/** One filter entry: a strict object naming one column, with one of the comparisons its `ops=` allows. */
+function filterEntry(field: ZodWhereField): string {
+    // An entry carries one comparison, so its column is a union of one-operator objects; two need two entries.
+    const comparisons = field.operators.map((operator) => {
+        const expression = operatorExpression(operator, field.expression);
+        return `z.strictObject({ ${operator}: ${expression}.exactOptional() })`;
+    });
+    const column = comparisons.length === 1 ? comparisons[0] : `z.union([${comparisons.join(", ")}])`;
+    return `z.strictObject({ ${field.name}: ${column} })`;
+}
+
+/** The schema one comparison validates: the field's own shape, wrapped by how many values the operator takes. */
+function operatorExpression(operator: QueryOperator, value: string): string {
+    switch (operatorArity(operator)) {
+        case 0:
+            return "z.literal(true)";
+        case 2:
+            return `z.tuple([${value}, ${value}])`;
+        case "list":
+            return `z.array(${value})`;
+        default:
+            return value;
+    }
 }
 
 /** The paging keys every read accepts, validated before they reach the SQL. See docs/queries.md. */

@@ -29,7 +29,6 @@ interface QueryTableData {
     key: string;
     fields: Record<string, string>;
     relations: Record<string, Record<string, unknown>>;
-    requiredFilters?: string[];
     order?: string[];
     defaultOrder?: { field: string; direction: string };
     where?: Record<string, string[]>;
@@ -94,12 +93,6 @@ export function buildQueryModel(tables: Map<string, Table>): QueryModelData {
         const key = primaryKeyColumns(table)[0]?.name as string;
         const data: QueryTableData = { name: table.name, key, fields, relations };
 
-        // A required filter is an invariant rather than a typing nicety, so the resolver reads it too.
-        const requiredFilters = requiredFilterFields(table);
-        if (requiredFilters.length > 0) {
-            data.requiredFilters = requiredFilters;
-        }
-
         // Orderable fields come from `@queryOrderBy`; one may declare the entity default ordering.
         const orderColumns = table.columns.filter((column) => column.queryOrder !== undefined);
         if (orderColumns.length > 0) {
@@ -111,10 +104,10 @@ export function buildQueryModel(tables: Map<string, Table>): QueryModelData {
             }
         }
 
-        // Comparable fields come from `@queryWhere`, each with the operators it whitelists.
-        const whereColumns = table.columns.filter((column) => column.where !== undefined);
+        // A filter's `ops=` is what the resolver accepts as a comparison on that column.
+        const whereColumns = table.columns.filter((column) => column.queryFilter !== undefined);
         if (whereColumns.length > 0) {
-            data.where = Object.fromEntries(whereColumns.map((column) => [column.name, column.where ?? []]));
+            data.where = Object.fromEntries(whereColumns.map((column) => [column.name, column.queryFilter?.ops ?? []]));
         }
 
         // A defaulted filter is applied when a read leaves it out, so the resolver reads the value too.
@@ -143,26 +136,16 @@ export function renderQueryModelModule(model: QueryModelData): string {
     return lines.join("\n") + "\n";
 }
 
-/** The field names an entity exposes as filters: its `@queryFilter` scalar columns. */
-function filterFields(table: Table): string[] {
-    return table.columns.filter((column) => column.queryFilter !== undefined).map((column) => column.name);
-}
-
-/** The filter fields every read must name: its `@queryFilter required` columns. */
-function requiredFilterFields(table: Table): string[] {
-    return table.columns.filter((column) => column.queryFilter?.required).map((column) => column.name);
-}
-
 /** The field names an entity exposes as ordering keys: its `@queryOrderBy` scalar columns. */
 function orderFields(table: Table): string[] {
     return table.columns.filter((column) => column.queryOrder !== undefined).map((column) => column.name);
 }
 
-/** The comparable fields with their allowed operators: its `@queryWhere` scalar columns. */
+/** The comparable fields with their allowed operators: its `@queryFilter` columns and their `ops=`. */
 function whereFields(table: Table): { name: string; operators: string[] }[] {
     return table.columns
-        .filter((column) => column.where !== undefined)
-        .map((column) => ({ name: column.name, operators: column.where ?? [] }));
+        .filter((column) => column.queryFilter !== undefined)
+        .map((column) => ({ name: column.name, operators: column.queryFilter?.ops ?? [] }));
 }
 
 /** Invoice -> `"id" | "number"`. */
@@ -170,29 +153,24 @@ function filterKeys(filters: string[]): string {
     return filters.map((name) => JSON.stringify(name)).join(" | ");
 }
 
-/** `Where<Invoice, { issueDate: "gte" | "lte" }>`. */
-function whereType(entity: string, fields: { name: string; operators: string[] }[]): string {
+/** The operator map a `Filters` takes: `{ issueDate: "gte" | "lte" }`. */
+function whereType(fields: { name: string; operators: string[] }[]): string {
     const entries = fields.map((field) => `${field.name}: ${filterKeys(field.operators)}`);
-    return `Where<${entity}, { ${entries.join("; ")} }>`;
+    return `{ ${entries.join("; ")} }`;
 }
 
 /** Render one entity's query function. */
 export function renderQueryModule(entity: string, table: Table): string {
-    const filters = filterFields(table);
-    const required = requiredFilterFields(table);
     const order = orderFields(table);
     const where = whereFields(table);
     const lines: string[] = [HEADER];
     lines.push(`import type { ${entity} } from "${table.importSpecifier}";`);
     const selectionTypes = ["Selection", "Selected"];
-    if (filters.length > 0) {
+    if (where.length > 0) {
         selectionTypes.push("Filters");
     }
     if (order.length > 0) {
         selectionTypes.push("Order");
-    }
-    if (where.length > 0) {
-        selectionTypes.push("Where");
     }
     selectionTypes.sort((a, b) => a.localeCompare(b));
     lines.push(`import type { ${selectionTypes.join(", ")} } from "sdk/selection.ts";`);
@@ -202,49 +180,38 @@ export function renderQueryModule(entity: string, table: Table): string {
     lines.push("");
     lines.push("const resolver = createResolver(queryModel);");
     lines.push("");
-    lines.push(`/** Query \`${entity}\` rows, filtered by the \`@queryFilter\` fields, combined with and. */`);
+    lines.push(`/** Query \`${entity}\` rows over the filters it carries, combined with and. */`);
     lines.push(
-        `export function query${entity}<S extends Selection<${entity}>>(db: SqlExecutor, opts: ${queryOptsType(entity, filters, required, order, where)}): Promise<Selected<${entity}, S>[]> {`,
+        `export function query${entity}<S extends Selection<${entity}>>(db: SqlExecutor, opts: ${queryOptsType(entity, order, where)}): Promise<Selected<${entity}, S>[]> {`,
     );
     const resolverOpts =
+        (where.length > 0 ? "filters: opts.filters, " : "") +
         (order.length > 0 ? "order: opts.order, " : "") +
-        (where.length > 0 ? "where: opts.where, " : "") +
         "limit: opts.limit, offset: opts.offset";
     lines.push(
-        `    return resolver.resolveMany<${entity}, S>(db, ${JSON.stringify(table.name)}, ${queryArgs(filters)}, { select: opts.select, ${resolverOpts} });`,
+        `    return resolver.resolveMany<${entity}, S>(db, ${JSON.stringify(table.name)}, { select: opts.select, ${resolverOpts} });`,
     );
     lines.push("}");
     return lines.join("\n") + "\n";
 }
 
-/** The `query` options: a filter, ordering, comparisons, and paging, plus the selection. */
+/** The `query` options: the filters, ordering, and paging, plus the selection. */
 function queryOptsType(
     entity: string,
-    filters: string[],
-    required: string[],
     order: string[],
     where: { name: string; operators: string[] }[],
 ): string {
     const parts: string[] = [];
-    if (filters.length > 0) {
-        // A required filter makes the whole object mandatory: `filter` may not be left out when it holds one.
-        const keys = required.length > 0 ? `${filterKeys(filters)}, ${filterKeys(required)}` : filterKeys(filters);
-        parts.push(`${required.length > 0 ? "filter" : "filter?"}: Filters<${entity}, ${keys}>`);
+    if (where.length > 0) {
+        // Every filterable column is one entry of the list, so the list itself is what may be left out.
+        parts.push(`filters?: Filters<${entity}, ${whereType(where)}>`);
     }
     if (order.length > 0) {
         parts.push(`order?: Order<${filterKeys(order)}>[]`);
     }
-    if (where.length > 0) {
-        parts.push(`where?: ${whereType(entity, where)}`);
-    }
     // Every read pages: `limit` defaults to the resolver's cap, `offset` to 0.
     parts.push("limit?: number", "offset?: number", "select: S");
     return `{ ${parts.join("; ")} }`;
-}
-
-/** The filter object handed to the resolver: the caller's, or an empty one when the entity has none. */
-function queryArgs(filters: string[]): string {
-    return filters.length > 0 ? "opts.filter ?? {}" : "{}";
 }
 
 /** The filter object a generated watch takes: the fields its scope tag declares. */

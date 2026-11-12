@@ -7,7 +7,7 @@ import { queryModel } from "./model.ts";
 
 const resolver = createResolver(queryModel);
 
-/** Query `Translation` rows, filtered by the `@queryFilter` fields, combined with and. */
-export function queryTranslation<S extends Selection<Translation>>(db: SqlExecutor, opts: { filter?: Filters<Translation, "lang" | "key">; limit?: number; offset?: number; select: S }): Promise<Selected<Translation, S>[]> {
-    return resolver.resolveMany<Translation, S>(db, "translation", opts.filter ?? {}, { select: opts.select, limit: opts.limit, offset: opts.offset });
+/** Query `Translation` rows over the filters it carries, combined with and. */
+export function queryTranslation<S extends Selection<Translation>>(db: SqlExecutor, opts: { filters?: Filters<Translation, { lang: "eq"; key: "eq" }>; limit?: number; offset?: number; select: S }): Promise<Selected<Translation, S>[]> {
+    return resolver.resolveMany<Translation, S>(db, "translation", { select: opts.select, filters: opts.filters, limit: opts.limit, offset: opts.offset });
 }

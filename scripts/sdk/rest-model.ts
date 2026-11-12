@@ -3,9 +3,9 @@ import {
     READ_OPERATIONS,
     WRITE_OPERATIONS,
     guardNameFor,
-    isCompareOperator,
     lowerFirst,
     type Diagnostic,
+    type QueryOperator,
     type RestPermission,
     type WatchScope,
     WATCH_SCOPES,
@@ -56,14 +56,10 @@ export interface RestEntity {
     tenantOwned?: TenantOwned;
     /** The primary-key fields, which name the row a write targets; one for a single key. */
     keys: string[];
-    /** The `@queryFilter` fields: `query` accepts them all. */
-    filters: string[];
-    /** The `@queryFilter required` fields: `query` must name them. */
-    requiredFilters: string[];
     /** The `@queryOrderBy` fields: `query` accepts them as `order` keys. */
     orderFields: string[];
-    /** The `@queryWhere` fields with their allowed operators: `query` accepts them as `where` keys. */
-    whereFields: { name: string; operators: string[] }[];
+    /** The `@queryFilter` fields with the operators `ops=` whitelists: `query` accepts them as `where` keys. */
+    whereFields: { name: string; operators: QueryOperator[] }[];
     /** The `@version` fields, which a patch requires as the optimistic-lock precondition. */
     versionFields: string[];
     /** The watch scopes the entity declares. See docs/notifications.md. */
@@ -200,11 +196,11 @@ function restEntityFor(spec: SpecInterface): RestEntity {
     const properties = spec.properties;
     // The collection path is the Postgres table name, so a new entity is exposed with no generator edit.
     const path = `/${spec.pgTableName}`;
-    const whereFields: { name: string; operators: string[] }[] = [];
+    const whereFields: { name: string; operators: QueryOperator[] }[] = [];
     for (const property of properties) {
-        const operators = (property.tags.queryWhere ?? []).filter(isCompareOperator);
-        if (operators.length > 0) {
-            whereFields.push({ name: property.name, operators });
+        const filter = property.tags.queryFilter;
+        if (filter !== undefined) {
+            whereFields.push({ name: property.name, operators: filter.ops });
         }
     }
 
@@ -216,10 +212,6 @@ function restEntityFor(spec: SpecInterface): RestEntity {
         ...(spec.tags.tenantOwned === undefined ? {} : { tenantOwned: spec.tags.tenantOwned }),
         // The parser defaults `@queryFilter` on a primary key, so a key is always a filter.
         keys: properties.filter((property) => property.tags.primaryKey).map((property) => property.name),
-        filters: properties.filter((property) => property.tags.queryFilter).map((property) => property.name),
-        requiredFilters: properties
-            .filter((property) => property.tags.queryFilter?.required)
-            .map((property) => property.name),
         orderFields: properties
             .filter((property) => property.tags.queryOrderBy !== undefined)
             .map((property) => property.name),

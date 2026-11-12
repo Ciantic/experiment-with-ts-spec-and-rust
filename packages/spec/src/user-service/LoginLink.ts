@@ -47,7 +47,7 @@ export interface LoginLink {
      * The moment the link stops being redeemable.
      *
      * @fieldName Expires at
-     * @queryWhere gt lte
+     * @queryFilter ops=gt,lte
      * @widget date
      */
     expiresAt: Date;
@@ -56,7 +56,7 @@ export interface LoginLink {
      * The moment the link was redeemed, which is null until then.
      *
      * @fieldName Consumed at
-     * @queryWhere isNull isNotNull
+     * @queryFilter ops=isNull,isNotNull
      * @widget date
      */
     consumedAt?: Date;

@@ -7,8 +7,8 @@ and the physical model; one hand-written resolver turns a selection into SQL.
 See "Why the resolver is hand-written".
 
 - `packages/sdk/src/selection.ts` — `Selection`/`Selected` (the
-  column-limiting types), `Filters` (the filter arguments), and the `Order` and
-  `Where` clauses. Hand-written; the resolver and the generated REST client
+  column-limiting types), `Filters`/`Filter` (the filter arguments), and the
+  `Order` clause. Hand-written; the resolver and the generated REST client
   import their types from it, so the read contract has one definition. See
   `docs/rest-api.md`.
 - `scripts/infra/generate-queries.ts` — the generator.
@@ -47,18 +47,17 @@ There is no query alias to write. The generator walks the tables and emits
 export function queryWidget<S extends Selection<Widget>>(
     db: SqlExecutor,
     opts: {
-        filter: Filters<Widget, "id" | "tenantId" | "accountId" | "supplierId", "tenantId">;
+        filters?: Filters<Widget, { id: "eq"; tenantId: "eq"; accountId: "eq"; startsAt: "gte" | "lte" }>;
         order?: Order<"createdAt" | "updatedAt">[];
-        where?: Where<Widget, { startsAt: "gte" | "lte" }>;
         limit?: number;
         offset?: number;
         select: S;
     },
 ): Promise<Selected<Widget, S>[]> {
-    return resolver.resolveMany<Widget, S>(db, "widget", opts.filter ?? {}, {
+    return resolver.resolveMany<Widget, S>(db, "widget", {
         select: opts.select,
+        filters: opts.filters,
         order: opts.order,
-        where: opts.where,
         limit: opts.limit,
         offset: opts.offset,
     });
@@ -82,22 +81,22 @@ default), at most `limit` of them, in pages of `offset`.
 
 ```
 @queryFilter
-@queryFilter required
+@queryFilter ops=gte,lte
 @queryFilter default=<value>
 ```
 
-A bare marker on a **scalar** field. It adds the field as a filter of the
-entity's reads. `id` is a filter **without the tag**, because each entity has
-one, so `queryWidgetRow` accepts `filter: { id }` out of the box:
+A marker on a **scalar** field. It adds the field as a filter of the entity's
+reads. `id` is a filter **without the tag**, because each entity has one, so
+`queryWidgetRow` accepts a filter on `id` out of the box:
 
 ```ts
 const rows = await queryWidgetRow(db, {
-    filter: { tenantId: [tenantId], id: [firstId, secondId] },
+    filters: [{ tenantId: { eq: tenantId } }, { id: { any: [firstId, secondId] } }],
     select: { description: true, subtotal: true },
 });
 
 const [row] = await queryWidgetRow(db, {
-    filter: { tenantId: [tenantId], id: [rowId] },
+    filters: [{ tenantId: { eq: tenantId } }, { id: { eq: rowId } }],
     select: { description: true, subtotal: true },
 });
 ```
@@ -116,82 +115,72 @@ code?: string;
 ```
 
 The default lives in `spec-model.ts`, which sets the tag when it parses a field
-carrying `@primaryKey`; a generator reads the tag and never the name. `required`
-is the one thing that default cannot say, so writing `@queryFilter` on a
-`@primaryKey` field is a lint finding unless it writes `required`. A composite key
-contributes one filter per key column, so each part of the key filters on its own.
+carrying `@primaryKey`; a generator reads the tag and never the name. Writing the
+tag on a `@primaryKey` field adds nothing to that default, so it is a lint
+finding. A composite key contributes one filter per key column, so each part of
+the key filters on its own.
 
 A field without `@queryFilter` is not filterable. Branch fields
 (`@relation`/`@children`/`@inlined`) may not carry it; a relation is filtered
 through its `@foreignKey` field, which is a scalar like any other.
 
-A filter's value is a **set** by default, but a nullable field also takes a null
-test instead. That is how a read names the rows a default would hide:
+### Filters are one comparison, combined with `and`
+
+A read carries `filters`: a list of entries in which each entry names one column
+with one comparison. The entries are combined with **`and`**, so one column may
+appear more than once — which is how a range, or a match on either of two sets,
+is written:
 
 ```ts
-// Live widgets: the default fills in `is null`.
-const live = await queryWidget(db, { filter: { tenantId: [tenantId] }, select: { code: true } });
+const widgets = await queryWidget(db, {
+    filters: [
+        { tenantId: { eq: tenantId } },
+        { startsAt: { gte: from } },
+        { startsAt: { lte: to } },
+    ],
+    select: { code: true },
+});
+// "tenantId" = $1 AND "startsAt" >= $2 AND "startsAt" <= $3
+```
+
+The generated type restricts each entry to the columns its `@queryFilter` marks
+and, per column, to the operators its `ops=` names:
+
+```ts
+export type Filter<E, O extends FilterOps<E>> = {
+    [K in keyof O & keyof E]?: {
+        [P in Extract<NonNullable<O[K]>, PropertyKey>]?: OperatorValue<P, NonNullable<E[K]>>;
+    };
+};
+
+export type Filters<E, O extends FilterOps<E>> = readonly Filter<E, O>[];
+```
+
+An entry that names a column the entity does not mark, or an operator that column
+does not offer, is a **type error** and, over HTTP, a 400. Left out, `filters` is
+an empty list, so `queryTenant(db, { select })` lists every row.
+
+A nullable column's null test is a variant like any other, which is how a read
+names the rows a default would hide:
+
+```ts
+// Live widgets: the default fills in `isNull`.
+const live = await queryWidget(db, { select: { code: true } });
 
 // Deleted widgets: the null test replaces the default.
 const deleted = await queryWidget(db, {
-    filter: { tenantId: [tenantId], deletedAt: { isNotNull: true } },
+    filters: [{ deletedAt: { isNotNull: true } }],
     select: { code: true, deletedAt: true },
-});
-
-// Widgets with no account.
-const unassigned = await queryWidget(db, {
-    filter: { tenantId: [tenantId], accountId: { isNull: true } },
-    select: { code: true },
 });
 ```
 
 `{ isNull: true }` and `{ isNotNull: true }` take no value. They are offered only
 for an optional field, whose column can hold null; a null test on a not-null
-column would match every row or none, so the linter rejects
-`@queryWhere isNull|isNotNull` there and the generated schema does not accept the
-test on a required filter. See "Filters are sets" below.
+column would match every row or none, so the linter rejects an `ops=` that names
+either there.
 
-### A required filter
-
-`@queryFilter required` makes the filter **mandatory**: every read of the entity
-has to name it. A tenant-owned entity marks its `tenantId` that way, because a
-read that forgets it would cross tenants. See `docs/tenancy.md`.
-
-```ts
-/**
- * @fieldName Tenant ID
- * @queryFilter required
- * @foreignKey Tenant
- * @widget text
- */
-tenantId: TenantId;
-```
-
-The generated args type then requires the filter object itself, and the field
-inside it:
-
-```ts
-export function queryWidgetRow<S extends Selection<WidgetRow>>(db: SqlExecutor, opts: {
-    filter: Filters<WidgetRow, "id" | "tenantId", "tenantId">;
-    limit?: number;
-    offset?: number;
-    select: S;
-}): Promise<Selected<WidgetRow, S>[]>;
-```
-
-`Filters<E, K, R>` takes the possible keys and the required ones separately, so
-`filter` is mandatory with `filter.tenantId`, and `filter.id` stays optional — a
-read that leaves the tenant out does not compile.
-
-The requirement holds at run time too: the generated args schema makes the field
-mandatory, so a read over HTTP that omits it is a **400**, and the resolver throws
-for a caller that reaches it with an untyped object, the same guard it puts on an
-unknown filter field. See "The resolver reads one query per branch".
-
-A required filter scopes what a read may **see**. What a write may **link** is a
-separate annotation: `@foreignKey Widget scope=tenantId` makes the reference
-composite, so a row cannot point at another tenant's widget, and the interface it
-points at declares that column with `@tenantOwned`. See `docs/tenancy.md`.
+A filter whose column defaults is applied unless an entry names it, so the
+default only fills a hole.
 
 ### A defaulted filter
 
@@ -219,54 +208,17 @@ and every read hides trashed rows unless it names the filter. The `@deletedAt`
 marker adds no behaviour of its own; it only makes the linter check that shape.
 See `docs/soft-delete.md`.
 
-A default is not a set: it is one value, compared with `=` or a null test. A
-read that names the filter overrides it — with a set or a null test — so the
-default only fills a hole. Defaults combine with the other filters and with
-`where`, all with `and` — but a `where` condition on the same field counts as
-naming it, so it replaces the default rather than narrowing it.
+A default is one comparison: `=` against a literal, or a null test. An entry that
+names the column overrides it, so the default only fills a hole. Defaults combine
+with the other entries with `and`.
 
-- **A null test needs a nullable field.** `default=isNull` and
+- **A null default needs a nullable field.** `default=isNull` and
   `default=isNotNull` read a nullable column; on a not-null one the first would
   never match and the second would match everything, so the linter reports both.
   A literal works on either.
-- **A default never makes a filter required.** The filter stays optional in the
-  generated type, the wire schema, and the SDK; a read that names it wins, and a
-  read that omits it gets the declared value.
 - **A default applies to branches too.** A branch narrows through the same
   resolver, so a `@children` or `@relation` branch over a defaulted entity hides
-  the defaulted rows unless its own arguments name the filter or compare the
-  field.
-- **A required filter cannot be defaulted.** Its default would never apply, so
-  the two are a lint finding together.
-
-### Filters are sets, combined with `and`
-
-Every filter is an array and every clause is `= any($n)`, so a single value is
-written as a one-element array. An array matches any of its values, and an empty
-array matches nothing. A filter whose field is nullable also takes a null test,
-`{ isNull: true }` or `{ isNotNull: true }`, because a set cannot say either.
-
-Several filters are combined with **`and`**: `{ tenantId: […], accountId: […] }`
-requires both. A filter left `undefined` is dropped — unless it declares a
-default, which is applied in its place — so a read that names only the tenant
-returns every row of that tenant, and an entity with no required filter, such as
-`Tenant`, lists everything when `filter` is left out.
-
-The generated type makes every filter optional except the ones the tag marks
-required:
-
-```ts
-type NullFilter = { isNull: true } | { isNotNull: true };
-type FilterValue<T> = readonly NonNullable<T>[] | (undefined extends T ? NullFilter : never);
-
-type Filters<E, K extends keyof E, R extends K = never> = { [P in R]: FilterValue<E[P]> } & Partial<{
-    [P in Exclude<K, R>]: FilterValue<E[P]>;
-}>;
-```
-
-The third parameter is `never` for an entity whose filters are all optional, so
-`queryTenant(db, { select })` lists every row, and a one-element array names a
-single value.
+  the defaulted rows unless its own arguments name the filter.
 
 ## `@queryOrderBy`
 
@@ -280,7 +232,7 @@ A bare marker on a **scalar** field whitelists it as an ordering key. The
 
 ```ts
 const widgets = await queryWidget(db, {
-    filter: { tenantId: [tenantId], accountId: [accountId] },
+    filters: [{ tenantId: { eq: tenantId } }, { accountId: { eq: accountId } }],
     order: [["createdAt", "desc"]],
     select: { code: true },
 });
@@ -325,67 +277,53 @@ inside its read arguments, the same way it carries a `filter`; the target's
 whitelist is what an order clause is checked against, so a branch orders only by
 its own entity's fields.
 
-## `@queryWhere`
+## `@queryFilter ops=`
 
 ```
-@queryWhere gte lte
+@queryFilter ops=eq,neq,gt,gte,lt,lte
 ```
 
-`@queryFilter` matches a **set** (`= any($n)`). A comparison cannot be a set, so it
-has its own tag and its own option: `@queryWhere` on a scalar field whitelists the
-operators that field may be narrowed with, and the read's `where` key carries
-them.
-
-```ts
-const widgets = await queryWidget(db, {
-    filter: { tenantId: [tenantId] },
-    where: { startsAt: { gte: from, lte: to } },
-    select: { code: true },
-});
-```
-
-The operator list is **required**: a bare `@queryWhere` is a lint finding. The
-vocabulary is `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, mapped to `=`, `<>`, `>`,
-`>=`, `<`, `<=`, plus the null tests `isNull` and `isNotNull`. Every operator
-except the last two takes one value; several operators on one field AND together,
-so `{ gte, lte }` **is** a range and no `between` operator is needed. The null
-tests take `true` and bind no parameter. An operator the field does not declare
-is a **type error** and, over HTTP, a 400.
-
-```ts
-/** The comparison arguments of a read. See docs/queries.md. */
-type NullOp = "isNull" | "isNotNull";
-
-export type Where<E, O extends Partial<Record<keyof E, PropertyKey>>> = {
-    [K in keyof O & keyof E]?: {
-        [P in Extract<NonNullable<O[K]>, PropertyKey>]?: P extends NullOp ? true : NonNullable<E[K]>;
-    };
-};
-export type CompareOp = "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | NullOp;
-```
-
-A null test is also a filter's job when the field declares `@queryFilter`, but
-`where` keeps the alternative for a field that is comparable and not filterable,
-and it combines with a `filter` on the same field. A null test on a not-null
-column matches everything or nothing, so the linter rejects it there.
-
-`filter` stays for membership: an `= any($n)` is index-friendly and reads a whole
-set in one comparison, so a read may use both — `filter` to narrow cheaply, then
-`where` for the range. The two are independent and combine with `and`.
+`ops=` whitelists the comparisons a filterable column may be compared with. Left
+out, the column offers `eq` alone, so a bare `@queryFilter` reads as an equality
+filter.
 
 ```ts
 /**
  * @fieldName Starts at
- * @queryWhere gte lte
+ * @queryFilter ops=gte,lte,between
  * @widget date
  */
 startsAt?: Date;
 ```
 
-A field may carry `@queryFilter`, `@queryWhere`, and `@queryOrderBy` at once — they
-are separate read facets. An entity with no `@queryWhere` field takes no `where` (its
-opts type omits the key). Like `order`, a branch carries its own `where`, checked
-against the target's own `@queryWhere` whitelist.
+```ts
+const widgets = await queryWidget(db, {
+    filters: [{ startsAt: { gte: from } }, { startsAt: { lte: to } }],
+    select: { code: true },
+});
+
+// The same range as one entry.
+const ranged = await queryWidget(db, {
+    filters: [{ startsAt: { between: [from, to] } }],
+    select: { code: true },
+});
+```
+
+The vocabulary is the query builder's own, spelled as it spells them, and each
+operator decides the value it takes:
+
+| Operators | Value |
+| --- | --- |
+| `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`, `notLike`, `notIlike` | one value of the column's type |
+| `in`, `notIn`, `any`, `notAny` | a list of it |
+| `between`, `notBetween` | exactly two of it |
+| `isNull`, `isNotNull` | `true`, which binds no parameter |
+
+`any` is the index-friendly membership test — `"tenantId" = ANY($1)` — and `in`
+is the `in (…)` list. An operator the column's `ops=` does not name is a **type
+error** and, over HTTP, a 400; `ops=` names at least one, so an empty `ops=` is a
+lint finding. The order of the tokens does not matter, because the parser
+canonicalizes them.
 
 ## `limit` and `offset`
 
@@ -394,7 +332,7 @@ leading rows.
 
 ```ts
 const page = await queryWidget(db, {
-    filter: { tenantId: [tenantId], accountId: [accountId] },
+    filters: [{ tenantId: { eq: tenantId } }, { accountId: { eq: accountId } }],
     order: [["createdAt", "desc"]],
     limit: 25,
     offset: 50,
@@ -426,7 +364,7 @@ caller asks for, narrowed in the type system. `Selection` describes what may be
 asked; `Selected` is the result.
 
 ```ts
-/** The scalar field names of `E`: the fields a branch's `filter`, `order`, or `where` may name. */
+/** The scalar field names of `E`: the fields a branch's `filters` or `order` may name. */
 export type ScalarKeys<E> = {
     [K in keyof E]-?: Scalar<E[K]> extends true ? K : never;
 }[keyof E];
@@ -434,9 +372,8 @@ export type ScalarKeys<E> = {
 /** The arguments of a read over `E`, as a branch carries them: the same shape a root read takes. */
 export type QueryArgs<E> = {
     select: Selection<E>;
-    filter?: { [K in ScalarKeys<E>]?: readonly NonNullable<E[K]>[] };
+    filters?: Filters<E, Partial<Record<keyof E, CompareOp>>>;
     order?: readonly (readonly [field: ScalarKeys<E>, direction: Direction])[];
-    where?: { [K in ScalarKeys<E>]?: { [P in CompareOp]?: NonNullable<E[K]> } };
     limit?: number;
     offset?: number;
 };
@@ -461,13 +398,13 @@ export type Selected<E, S> = {
 
 A scalar is selected with `true`; a branch (a child collection or a relation) is
 selected either with `true` — every scalar of the branch, unfiltered — or with a
-**read's arguments**: a required `select`, plus the `filter`, `order`, `where`,
-`limit`, and `offset` a root read takes. Properties not named are absent from the
+**read's arguments**: a required `select`, plus the `filters`, `order`, `limit`,
+and `offset` a root read takes. Properties not named are absent from the
 result, not `undefined`.
 
 ```ts
 const [widget] = await queryWidget(db, {
-    filter: { tenantId: [tenantId] },
+    filters: [{ tenantId: { eq: tenantId } }],
     select: {
         code: true,
         // The same arguments `queryWidgetRow` takes, applied to this widget's rows.
@@ -481,12 +418,12 @@ const [widget] = await queryWidget(db, {
 ```
 
 A branch's `select` is mandatory, so the empty object is not a branch. The
-runtime reads the same annotations a root read does: a branch `filter`/`order`/
-`where` is checked against the **target's** whitelists, so an unannotated field
-is a runtime throw (and a 400 over HTTP) even though the branch's `filter`,
-`order`, and `where` are typed structurally, over every scalar field. A root read
-keeps the per-entity `Filters`/`Order`/`Where` types, so an unknown field there
-stays a compile error; only a branch is checked at run time.
+runtime reads the same annotations a root read does: a branch's `filters`/`order`
+is checked against the **target's** whitelists, so an unannotated field is a
+runtime throw (and a 400 over HTTP) even though the branch's `filters` and
+`order` are typed structurally, over every scalar field. A root read keeps the
+per-entity `Filters`/`Order` types, so an unknown field there stays a compile
+error; only a branch is checked at run time.
 
 What counts as a scalar is decided by `Scalar`, which reads the `Brand`
 that `@primitive` already puts on every primitive:
@@ -514,7 +451,7 @@ A call site narrows exactly:
 
 ```ts
 const [widget] = await queryWidget(db, {
-    filter: { tenantId: [tenantId], id: [id] },
+    filters: [{ tenantId: { eq: tenantId } }, { id: { eq: id } }],
     select: {
         id: true,
         code: true,
@@ -597,9 +534,8 @@ time from `queryModel` plus the selection:
   foreign key, attached back by key.
 - **`@children`** — one batched `where child.fk = any($n)`, grouped in memory.
 
-A branch's own arguments join that statement: its `filter` narrows the batched
-`= any($n)` set, its `where` adds comparisons on the target's columns, and its
-`order` sorts the batch before it is grouped. Its `limit`/`offset` bound each
+A branch's own arguments join that statement: its `filters` add comparisons on
+the target's columns, and its `order` sorts the batch before it is grouped. Its `limit`/`offset` bound each
 parent, which needs a ranked subquery rather than a plain `limit` — the resolver
 ranks the branch rows over the parent key and keeps each parent's window. A
 branch with no `select` throws, as does a filter, order, or comparison the target
@@ -630,8 +566,8 @@ and Postgres infers the array's element type from the column. Multiple filters a
 `@queryFilter` on a branch field, so a filter always names a scalar column.
 
 Ordering, paging, and comparisons are applied the same way: the resolver reads
-the table's `order`/`defaultOrder` and `where` whitelists from `queryModel`,
-refuses a field or operator that is not on them, and validates the direction and
+the table's `order`/`defaultOrder` and operator whitelists from `queryModel`,
+refuses a column or operator that is not on them, and validates the direction and
 operator before they reach the SQL, where every value is parameterized. A root
 read's `limit` defaults to 1000 and its `offset` to 0, and a value that is not a
 positive integer or a non-negative integer is rejected; a branch's `limit`/`offset`
@@ -652,38 +588,28 @@ because the ranked window orders each parent's rows before they are grouped.
   how a branch is narrowed. On an **inlined** branch only `select` applies — there
   is no separate statement to filter, order, or page.
 - **A branch's facets are typed structurally, checked at run time.** The branch's
-  `filter`, `order`, and `where` accept every scalar field of the target, because a
+  `filters` and `order` accept every scalar field of the target, because a
   hand-written `Selection` cannot read the target's annotations. The resolver (and
   the generated args schema, over HTTP) still refuses a field or operator the
   target does not allow, so an unannotated one is a throw or a 400 rather than a
-  compile error. A root read keeps the exact `Filters`/`Order`/`Where` types.
+  compile error. A root read keeps the exact `Filters`/`Order` types.
 - **A filter reads columns the selection may omit.** `select` governs the
-  projection; the `args` still read whatever they name, and so do `order` and
-  `where`.
-- **Set membership, a null test, or the `@queryWhere` operators.** A `filter` is
-  an array matched with `= any($n)`, or `{ isNull: true }`/`{ isNotNull: true }`
-  on a nullable field; an empty set matches nothing, and a value that is neither
-  throws. A comparison goes through `where`, whose operators are whitelisted per
-  field, and whose null tests take `true`. A range is `{ gte, lte }`, not a
-  `between`.
-- **`eq` overlaps `filter`.** `where: { id: { eq } }` says what
-  `filter: { id: [value] }` already says; `eq` exists for symmetry and `ne` is
-  the operator a set cannot express, as are the two null tests.
+  projection; the `filters` still read whatever they name, and so does `order`.
+- **One entry is one comparison.** `filters` is a list of entries combined with
+  `and`, each naming one column with one operator, so a column is filtered twice
+  by two entries. An entry naming two columns, or two operators, throws.
+- **A range is two entries, or one `between`.** `ops=` decides which is offered:
+  `{ gte }` and `{ lte }` need no `between`, and `between` needs no second entry.
+  Both render the same rows.
 - **Filters come only from `@queryFilter`, plus the primary key.** A field
   without the tag is not filterable, each `@primaryKey` field is a filter without
   it, and a branch field may not carry it. A parent is not filtered by a related
-  record's columns, such as `account.name`; a branch's own `filter` narrows the
+  record's columns, such as `account.name`; a branch's own `filters` narrow the
   branch, and the foreign key is a scalar field, so `accountId` is filterable.
 - **A default fills a hole, it does not narrow by itself.** `@queryFilter
   default=<value>` applies when a read omits the filter; a read that names it
   overrides the declared value. This is how a nullable `deletedAt` reads live rows
   by default (`docs/soft-delete.md`).
-- **A required filter is a precondition, not a filter value.** `@queryFilter
-  required` narrows nothing by itself; it makes the caller name the field. A
-  tenant-owned entity marks its `tenantId` that way, so a read cannot quietly span
-  tenants, while an entity that carries no tenant, such as `Locale`, stays
-  unscoped. A scoped foreign key is what keeps a *write* from linking two
-  tenants; see `docs/tenancy.md`.
 - **A composite key has no single row key for branch attachment.** The resolver
   identifies a row by one column, so an entity whose `@primaryKey` is several
   fields cannot be the target of a `@foreignKey` — and so cannot be reached by a
@@ -736,14 +662,11 @@ middle ground if the args logic grows past equality.
 
 ## Deliberately not implemented
 
-- **Comparing or filtering a parent by a branch's columns.** `@queryWhere` and
-  `@queryFilter` are scalar-only, so `queryWidget` cannot compare or filter on a
-  related record's columns, such as `account.name`. A branch's own `filter` and
-  `where` narrow the branch, not the parent; the foreign key is a scalar field, so
-  `accountId` filters the parent.
-- **More comparison operators.** The vocabulary is `eq ne gt gte lt lte`. `like`,
-  `isNull`, and a case-insensitive match would each be another entry.
-- **Comparisons across fields.** A `where` value is a literal, not a column
+- **Comparing or filtering a parent by a branch's columns.** `@queryFilter` is
+  scalar-only, so `queryWidget` cannot compare or filter on a related record's
+  columns, such as `account.name`. A branch's own `filters` narrow the branch, not
+  the parent; the foreign key is a scalar field, so `accountId` filters the parent.
+- **Comparisons across fields.** A filter value is a literal, not a column
   reference, so `startsAt < endsAt` is not expressible.
 - **A row at most, not exactly one.** There is no `limit 1` shorthand; a caller
   takes the first result, which fetches a whole page.

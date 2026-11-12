@@ -31,22 +31,12 @@ export const queryInvoiceSelectSchema = z.lazy(() =>
 );
 
 export const queryInvoiceSchema = z.strictObject({
-    filter: z.strictObject({
-        id: z.array(primitives.brandedIdSchema<"InvoiceId">()).exactOptional(),
-        tenantId: z.array(primitives.brandedIdSchema<"TenantId">()).exactOptional(),
-        customerId: z.union([z.array(primitives.brandedIdSchema<"CustomerId">()), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })]).exactOptional(),
-        sellerId: z.union([z.array(primitives.brandedIdSchema<"SellerId">()), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })]).exactOptional(),
-        deletedAt: z.union([z.array(z.date()), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })]).exactOptional(),
-    }).exactOptional(),
     order: z.array(
         z.tuple([z.enum(["createdAt", "updatedAt"]), z.enum(["asc", "desc"])]),
     ).exactOptional(),
-    where: z.strictObject({
-        issueDate: z.strictObject({
-            gte: z.date().exactOptional(),
-            lte: z.date().exactOptional(),
-        }).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"InvoiceId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) }), z.strictObject({ customerId: z.union([z.strictObject({ eq: primitives.brandedIdSchema<"CustomerId">().exactOptional() }), z.strictObject({ any: z.array(primitives.brandedIdSchema<"CustomerId">()).exactOptional() })]) }), z.strictObject({ sellerId: z.union([z.strictObject({ eq: primitives.brandedIdSchema<"SellerId">().exactOptional() }), z.strictObject({ any: z.array(primitives.brandedIdSchema<"SellerId">()).exactOptional() })]) }), z.strictObject({ issueDate: z.union([z.strictObject({ gte: z.date().exactOptional() }), z.strictObject({ lte: z.date().exactOptional() }), z.strictObject({ between: z.tuple([z.date(), z.date()]).exactOptional() })]) }), z.strictObject({ deletedAt: z.strictObject({ eq: z.date().exactOptional() }) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryInvoiceSelectSchema,

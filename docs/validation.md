@@ -371,58 +371,46 @@ it as a table before anything consumes it.
 
 An entity that carries `@queries query` gets a generated `query` read
 (`docs/queries.md`), and a `query` args schema with it. A read takes one
-argument — its filters, its
-ordering, its comparisons, and `select` — so the schema is that object with the
-entity's select schema added as a field. The filters come from the entity's
-`@queryFilter` fields, resolved like any other field (the same primitives,
-keywords, and `Date` mapping) and always validated as a set: `z.array(…)`. The
-ordering keys come from the entity's `@queryOrderBy` fields, and the comparison
-fields and their operators from `@queryWhere`. The schema is named after the read:
-`Widget` yields `queryWidgetSchema` in
+argument — its filters, its ordering, its paging, and `select` — so the schema is
+that object with the entity's select schema added as a field. A filter comes from
+one of the entity's `@queryFilter` fields, resolved like any other field (the same
+primitives, keywords, and `Date` mapping), so each entry validates the column's
+own type. The ordering keys come from the entity's `@queryOrderBy` fields. The
+schema is named after the read: `Widget` yields `queryWidgetSchema` in
 `packages/sdk/src/queries/queryWidget.ts`.
+
 ```typescript
 export const queryWidgetSchema = z.strictObject({
-    filter: z.strictObject({
-        id: z.array(primitives.brandedIdSchema<"WidgetId">()).exactOptional(),
-        tenantId: z.array(primitives.brandedIdSchema<"TenantId">()),
-        accountId: z.array(primitives.brandedIdSchema<"AccountId">()).exactOptional(),
-        supplierId: z.array(primitives.brandedIdSchema<"SupplierId">()).exactOptional(),
-    }),
     order: z.array(
         z.tuple([z.enum(["createdAt", "updatedAt"]), z.enum(["asc", "desc"])]),
     ).exactOptional(),
-    where: z.strictObject({
-        startsAt: z.strictObject({
-            gte: z.date().exactOptional(),
-            lte: z.date().exactOptional(),
-        }).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"WidgetId">().exactOptional() }) }),
+                 z.strictObject({ startsAt: z.union([z.strictObject({ gte: z.date().exactOptional() }),
+                                                     z.strictObject({ lte: z.date().exactOptional() })]) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryWidgetSelectSchema,
 });
 ```
 
-Every filter is optional — mirroring the generated `Filters<…>` type — except the
-one `@queryFilter required` marks, which drops the `.exactOptional()` on the field and
-on the `filter` object that holds it, so `queryWidgetSchema` rejects a read that
-names no tenant. A `@queryFilter default=<value>` stays optional: the value
-is applied by the resolver when the read omits the field, so it needs no schema
-of its own. A filter over an optional field accepts a null test as well as a set,
-`z.union([z.array(…), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })])`,
-because a set cannot say "is null"; a not-null field keeps the plain set. The
-filter is its own
-`z.strictObject`, so a flat filter field or an unknown filter key fails rather
-than being stripped, and a data field named `select` cannot collide with the
-projection. Each `order` clause is a `[field, direction]` tuple whose field is
-whitelisted (`z.enum`), so an unknown sort key is a 400 rather than a `500` from
-the resolver. Each `where` field is a `z.strictObject` of **only** the operators
-`@queryWhere` declared, so a comparison the spec does not allow is a 400 too; the
-field's own schema types each operator's value, and a null test is
-`z.literal(true)`. `limit` is a positive integer
-and `offset` a non-negative integer, so a bad page is a 400. An entity with no
-`@queryOrderBy` field gets no `order` key and an entity with no `@queryWhere` field no
-`where` key; every read gets `limit` and `offset`.
+An entry is a `z.strictObject` naming **one** column, and that column's value is a
+union of one-operator objects, so an entry that names two columns or two
+comparisons is a 400 rather than a query that silently drops one. The operators
+come from the column's `@queryFilter ops=`, and the operator decides the value:
+the field's own schema for one value, `z.array(…)` for `in` and `any`,
+`z.tuple([…, …])` for `between`, and `z.literal(true)` for a null test. A
+comparison the spec does not allow is therefore a 400 too.
+
+`filters` is optional, and so is every entry: a read that names none lists every
+row. A `@queryFilter default=<value>` needs no schema of its own, because the
+resolver applies the value when the read omits the column. Each `order` clause is
+a `[field, direction]` tuple whose field is whitelisted (`z.enum`), so an unknown
+sort key is a 400 rather than a `500` from the resolver. `limit` is a positive
+integer and `offset` a non-negative integer, so a bad page is a 400. An entity
+with no `@queryOrderBy` field gets no `order` key and an entity with no
+`@queryFilter` field no `filters` key; every read gets `limit` and `offset`.
 
 The module is separate from the entities so a caller can validate a read without
 pulling in a write schema, and `--out` still writes below the given directory.

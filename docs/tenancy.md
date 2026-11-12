@@ -22,7 +22,7 @@ export interface Tenant { … }
 export interface Widget {
     /**
      * @fieldName Tenant ID
-     * @queryFilter required
+     * @queryFilter
      * @foreignKey Tenant
      * @widget text
      */
@@ -89,19 +89,18 @@ without `hasGlobalPermission`, a call that addresses a null tenant is refused,
 and with it the call may address tenanted and unowned rows alike. See
 "Reads" below and `docs/permissions.md`.
 
-## Reads: `@queryFilter required`
+## Reads: the tenant filter
 
-Marking `tenantId` a required filter makes every read of the entity name it, so a
-read cannot list another tenant's rows by omitting a filter. The requirement is
-enforced in four places, from the type down to the resolver — see
-`docs/queries.md`. `Tenant`, `Locale`, and `LogEntry` have no `tenantId` and so
-nothing to require; a read of them is unscoped.
+Marking `tenantId` a filter makes a read able to name it; the route guard is what
+requires it, so a read cannot list another tenant's rows by omitting it. `Tenant`,
+`Locale`, and `LogEntry` have no `tenantId` and so nothing to scope; a read of
+them is unscoped. See `docs/queries.md`.
 
 On an optional owner the filter value may also be a null test: a nullable column
-takes one, so `filter: { tenantId: { isNull: true } }` reads the rows that belong
-to no tenant and `{ isNotNull: true }` reads every tenanted row. A null test
-names no tenant, so the guard refuses it without the global permission; naming
-tenants instead checks `hasTenantPermission` for each.
+takes one, so `filters: [{ tenantId: { isNull: true } }]` reads the rows that
+belong to no tenant and `{ isNotNull: true }` reads every tenanted row. A null
+test names no tenant, so the guard refuses it without the global permission;
+naming tenants instead checks `hasTenantPermission` for each.
 
 That alone is not enough: it scopes what is *read*, not what is *written*.
 

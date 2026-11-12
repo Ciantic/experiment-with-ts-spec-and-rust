@@ -49,7 +49,7 @@ export interface Invoice {
     updatedAt: Date;
     /** @queryFilter */
     deletedAt?: Date;
-    /** @queryWhere gte lte */
+    /** @queryFilter ops=gte,lte */
     issueDate?: Date;
     customerName: string;
 }
@@ -90,12 +90,12 @@ const invoice = table(
     "invoice",
     "Invoice",
     [
-        column("id", { sqlType: "uuid", primaryKey: true, queryFilter: { required: false } }),
-        column("tenantId", { sqlType: "uuid", queryFilter: { required: false } }),
+        column("id", { sqlType: "uuid", primaryKey: true, queryFilter: { ops: ["eq"] } }),
+        column("tenantId", { sqlType: "uuid", queryFilter: { ops: ["eq"] } }),
         column("number", { queryOrder: { default: "asc" } }),
         column("updatedAt", { sqlType: "timestamptz", queryOrder: {} }),
-        column("deletedAt", { sqlType: "timestamptz", notNull: false, queryFilter: { required: false } }),
-        column("issueDate", { sqlType: "timestamptz", notNull: false, where: ["gte", "lte"] }),
+        column("deletedAt", { sqlType: "timestamptz", notNull: false, queryFilter: { ops: ["eq"] } }),
+        column("issueDate", { sqlType: "timestamptz", notNull: false, queryFilter: { ops: ["gte", "lte"] } }),
         column("customerName"),
     ],
     new Map([["snapshot", { kind: "inlined", table: "customer", columns: { name: "customerName" } }]]),
@@ -182,19 +182,23 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
     });
 
-    it("gives each filterable column a newtype over its own comparison", () => {
+    it("gives each filterable column an enum of exactly its ops", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub struct InvoiceTenantIdFilter(pub Comparison<TenantId>);");
-        expect(code).toContain("#[serde(transparent)]");
+        expect(code).toContain("pub enum InvoiceTenantIdFilter {");
+        expect(code).toContain("    Eq(TenantId),");
         expect(code).not.toContain("pub tenant_id: Option<");
     });
 
     it("names each column's type when it lowers to the planner", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain('TypedFilter::comparison("tenantId", SqlType::Uuid, self.0)');
-        expect(code).toContain('TypedFilter::comparison("deletedAt", SqlType::Timestamptz, self.0)');
+        expect(code).toContain(
+            'TypedFilter::one("tenantId", SqlType::Uuid, FilterOperator::Eq, value)?',
+        );
+        expect(code).toContain(
+            'TypedFilter::one("deletedAt", SqlType::Timestamptz, FilterOperator::Eq, value)?',
+        );
     });
 
     it("lets a where column carry exactly its whitelisted operator", () => {

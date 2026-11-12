@@ -43,7 +43,7 @@ const invoice = table(
     "invoice",
     "Invoice",
     [
-        column("id", { primaryKey: true, queryFilter: { required: false } }),
+        column("id", { primaryKey: true, queryFilter: { ops: ["eq"] } }),
         column("number"),
         column("customerId", { references: { table: "customer", column: "id" } }),
         column("customerName"),
@@ -60,30 +60,30 @@ const seller = table("seller", "Seller", [column("id", { primaryKey: true })]);
 
 /** An entity whose `createdAt` is the default ordering and `updatedAt` is merely orderable. */
 const stamped = table("stamped", "Stamped", [
-    column("id", { primaryKey: true, queryFilter: { required: false } }),
+    column("id", { primaryKey: true, queryFilter: { ops: ["eq"] } }),
     column("createdAt", { queryOrder: { default: "asc" } }),
     column("updatedAt", { queryOrder: {} }),
 ]);
 
 /** An entity whose `amount` may be compared with a whitelist of operators. */
 const sized = table("sized", "Sized", [
-    column("id", { primaryKey: true, queryFilter: { required: false } }),
-    column("amount", { where: ["gte", "lte"] }),
+    column("id", { primaryKey: true, queryFilter: { ops: ["eq"] } }),
+    column("amount", { queryFilter: { ops: ["gte", "lte"] } }),
 ]);
 
 /** An entity whose `tenantId` every read must name. */
 const scoped = table("scoped", "Scoped", [
-    column("id", { primaryKey: true, queryFilter: { required: false } }),
-    column("tenantId", { queryFilter: { required: true } }),
+    column("id", { primaryKey: true, queryFilter: { ops: ["eq"] } }),
+    column("tenantId", { queryFilter: { ops: ["eq"] } }),
 ]);
 
 /** An entity whose filters fall back to a value when a read omits them. */
 const defaulted = table("defaulted", "Defaulted", [
-    column("id", { primaryKey: true, queryFilter: { required: false } }),
-    column("state", { queryFilter: { required: false, default: { kind: "literal", value: "open" } } }),
-    column("priority", { queryFilter: { required: false, default: { kind: "literal", value: 0 } } }),
-    column("deletedAt", { notNull: false, queryFilter: { required: false, default: { kind: "isNull" } } }),
-    column("approvedAt", { notNull: false, queryFilter: { required: false, default: { kind: "isNotNull" } } }),
+    column("id", { primaryKey: true, queryFilter: { ops: ["eq"] } }),
+    column("state", { queryFilter: { default: { kind: "literal", value: "open" }, ops: ["eq"] } }),
+    column("priority", { queryFilter: { default: { kind: "literal", value: 0 }, ops: ["eq"] } }),
+    column("deletedAt", { notNull: false, queryFilter: { default: { kind: "isNull" }, ops: ["eq"] } }),
+    column("approvedAt", { notNull: false, queryFilter: { default: { kind: "isNotNull" }, ops: ["eq"] } }),
 ]);
 
 const tables = new Map([
@@ -113,16 +113,10 @@ describe("buildQueryModel", () => {
         expect(relations.snapshot).toEqual({ kind: "inlined", columns: { name: "customerName" } });
     });
 
-    it("records the required filters", () => {
+    it("records every filter column's operators", () => {
         const model = buildQueryModel(new Map([["Scoped", scoped]]));
 
-        expect(model.tables.scoped?.requiredFilters).toEqual(["tenantId"]);
-    });
-
-    it("omits the required metadata when every filter is optional", () => {
-        const model = buildQueryModel(tables).tables.invoice;
-
-        expect(model?.requiredFilters).toBeUndefined();
+        expect(model.tables.scoped?.where).toEqual({ id: ["eq"], tenantId: ["eq"] });
     });
 
     it("records the filters' literal defaults", () => {
@@ -160,11 +154,11 @@ describe("buildQueryModel", () => {
     it("records the comparable fields and their operators", () => {
         const model = buildQueryModel(new Map([["Sized", sized]]));
 
-        expect(model.tables.sized?.where).toEqual({ amount: ["gte", "lte"] });
+        expect(model.tables.sized?.where).toEqual({ id: ["eq"], amount: ["gte", "lte"] });
     });
 
     it("omits where metadata when the entity marks nothing comparable", () => {
-        const model = buildQueryModel(tables).tables.invoice;
+        const model = buildQueryModel(tables).tables.seller;
 
         expect(model?.where).toBeUndefined();
     });
@@ -183,7 +177,7 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule("Invoice", invoice);
 
         expect(code).toContain(
-            'queryInvoice<S extends Selection<Invoice>>(db: SqlExecutor, opts: { filter?: Filters<Invoice, "id">; limit?: number; offset?: number; select: S })',
+            'queryInvoice<S extends Selection<Invoice>>(db: SqlExecutor, opts: { filters?: Filters<Invoice, { id: "eq" }>; limit?: number; offset?: number; select: S })',
         );
     });
 
@@ -192,7 +186,7 @@ describe("renderQueryModule", () => {
 
         expect(code).not.toContain("const { select, ...args } = opts;");
         expect(code).toContain(
-            'resolver.resolveMany<Invoice, S>(db, "invoice", opts.filter ?? {}, { select: opts.select, limit: opts.limit, offset: opts.offset })',
+            'resolver.resolveMany<Invoice, S>(db, "invoice", { select: opts.select, filters: opts.filters, limit: opts.limit, offset: opts.offset })',
         );
     });
 
@@ -200,7 +194,7 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule("Stamped", stamped);
 
         expect(code).toContain(
-            'resolver.resolveMany<Stamped, S>(db, "stamped", opts.filter ?? {}, { select: opts.select, order: opts.order, limit: opts.limit, offset: opts.offset })',
+            'resolver.resolveMany<Stamped, S>(db, "stamped", { select: opts.select, filters: opts.filters, order: opts.order, limit: opts.limit, offset: opts.offset })',
         );
     });
 
@@ -238,7 +232,9 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule("Invoice", invoice);
 
         expect(code).not.toContain("Order<");
-        expect(code).toContain('opts: { filter?: Filters<Invoice, "id">; limit?: number; offset?: number; select: S }');
+        expect(code).toContain(
+            'opts: { filters?: Filters<Invoice, { id: "eq" }>; limit?: number; offset?: number; select: S }',
+        );
     });
 
     it("gives every read a limit and an offset", () => {
@@ -247,42 +243,41 @@ describe("renderQueryModule", () => {
         expect(code).toContain("limit?: number; offset?: number; select: S");
     });
 
-    it("requires the filter object when a field is a required filter", () => {
+    it("keeps the filters optional, since no filter is mandatory", () => {
         const code = renderQueryModule("Scoped", scoped);
 
-        expect(code).toContain('filter: Filters<Scoped, "id" | "tenantId", "tenantId">');
-        expect(code).not.toContain("filter?");
+        expect(code).toContain('filters?: Filters<Scoped, { id: "eq"; tenantId: "eq" }>');
     });
 
     it("names no required key when every filter is optional", () => {
         const code = renderQueryModule("Invoice", invoice);
 
-        expect(code).toContain('filter?: Filters<Invoice, "id">');
+        expect(code).toContain('filters?: Filters<Invoice, { id: "eq" }>');
     });
 
     it("takes comparisons for the whitelisted operators", () => {
         const code = renderQueryModule("Sized", sized);
 
-        expect(code).toContain("import type { Filters, Selected, Selection, Where } from");
-        expect(code).toContain('where?: Where<Sized, { amount: "gte" | "lte" }>');
-        expect(code).toContain("where: opts.where");
+        expect(code).toContain("import type { Filters, Selected, Selection } from");
+        expect(code).toContain('filters?: Filters<Sized, { id: "eq"; amount: "gte" | "lte" }>');
+        expect(code).toContain("filters: opts.filters");
     });
 
     it("names a null test among the whitelisted operators", () => {
         const nullable = table("nullable", "Nullable", [
-            column("id", { primaryKey: true, queryFilter: { required: false } }),
-            column("deletedAt", { notNull: false, where: ["isNull", "isNotNull"] }),
+            column("id", { primaryKey: true, queryFilter: { ops: ["eq"] } }),
+            column("deletedAt", { notNull: false, queryFilter: { ops: ["isNull", "isNotNull"] } }),
         ]);
         const code = renderQueryModule("Nullable", nullable);
 
-        expect(code).toContain('where?: Where<Nullable, { deletedAt: "isNull" | "isNotNull" }>');
+        expect(code).toContain('filters?: Filters<Nullable, { id: "eq"; deletedAt: "isNull" | "isNotNull" }>');
     });
 
-    it("omits the where key from the opts type when the entity marks nothing comparable", () => {
-        const code = renderQueryModule("Invoice", invoice);
+    it("omits the filters key from the opts type when the entity marks nothing filterable", () => {
+        const code = renderQueryModule("Seller", seller);
 
-        expect(code).not.toContain("Where<");
-        expect(code).not.toContain("where: opts.where");
+        expect(code).not.toContain("Filters<");
+        expect(code).not.toContain("filters: opts.filters");
     });
 });
 

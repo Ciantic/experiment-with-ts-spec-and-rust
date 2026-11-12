@@ -22,7 +22,7 @@ export type QueryTenantErrors =
     | HttpError;
 
 /**
- * Query `Tenant` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `Tenant` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -33,7 +33,7 @@ export type QueryTenantErrors =
  */
 export function queryTenant<S extends Selection<Tenant>>(
     opts: {
-        filter?: Filters<Tenant, "id">;
+        filters?: Filters<Tenant, { id: "eq" }>;
         limit?: number;
         offset?: number;
         select: S;

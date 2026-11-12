@@ -17,21 +17,9 @@ export const queryUserSessionSelectSchema = z.lazy(() =>
 );
 
 export const queryUserSessionSchema = z.strictObject({
-    filter: z.strictObject({
-        id: z.array(primitives.brandedIdSchema<"UserSessionId">()).exactOptional(),
-        userId: z.array(primitives.brandedIdSchema<"UserId">()).exactOptional(),
-        tokenHash: z.array(primitives.userSessionTokenHashSchema).exactOptional(),
-    }).exactOptional(),
-    where: z.strictObject({
-        expiresAt: z.strictObject({
-            gt: z.date().exactOptional(),
-            lte: z.date().exactOptional(),
-        }).exactOptional(),
-        revokedAt: z.strictObject({
-            isNull: z.literal(true).exactOptional(),
-            isNotNull: z.literal(true).exactOptional(),
-        }).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"UserSessionId">().exactOptional() }) }), z.strictObject({ userId: z.strictObject({ eq: primitives.brandedIdSchema<"UserId">().exactOptional() }) }), z.strictObject({ tokenHash: z.strictObject({ eq: primitives.userSessionTokenHashSchema.exactOptional() }) }), z.strictObject({ expiresAt: z.union([z.strictObject({ gt: z.date().exactOptional() }), z.strictObject({ lte: z.date().exactOptional() })]) }), z.strictObject({ revokedAt: z.union([z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryUserSessionSelectSchema,

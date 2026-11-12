@@ -27,38 +27,69 @@ export type Order<K extends PropertyKey> = [field: K, direction: Direction];
 /** The operators that test whether a column is null; they take no value. See docs/queries.md. */
 export type NullOp = "isNull" | "isNotNull";
 
-/** The comparison operators a `@queryWhere` field may name. See docs/queries.md. */
-export type CompareOp = "eq" | "ne" | "gt" | "gte" | "lt" | "lte" | NullOp;
+/** The operators that compare a column with a list of values. See docs/queries.md. */
+export type ListOp = "in" | "notIn" | "any" | "notAny";
 
-/** Comparison arguments of a read: each field whitelisted to the operators `@queryWhere` declared; a null test takes `true`. See docs/queries.md. */
-export type Where<E, O extends Partial<Record<keyof E, PropertyKey>>> = {
-    [K in keyof O & keyof E]?: {
-        [P in Extract<NonNullable<O[K]>, PropertyKey>]?: P extends NullOp ? true : NonNullable<E[K]>;
-    };
-};
+/** The operators that bound a column from both sides, taking two values. See docs/queries.md. */
+export type RangeOp = "between" | "notBetween";
 
-/** A null test a filter may carry instead of a set: `filter: { deletedAt: { isNotNull: true } }`. See docs/queries.md. */
-export type NullFilter = { isNull: true } | { isNotNull: true };
+/** The comparison operators a `@queryFilter ops=` may name. See docs/queries.md. */
+export type CompareOp =
+    | "eq"
+    | "neq"
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "like"
+    | "ilike"
+    | "notLike"
+    | "notIlike"
+    | ListOp
+    | NullOp
+    | RangeOp;
 
-/** One filter's value: a set matched with `= any($n)`, or, on a nullable field, a null test. See docs/queries.md. */
-export type FilterValue<T> = readonly NonNullable<T>[] | (undefined extends T ? NullFilter : never);
+/** The value an operator takes: `true` for a null test, a pair for a range, a list for a set. See docs/queries.md. */
+export type OperatorValue<P extends PropertyKey, V> = P extends NullOp
+    ? true
+    : P extends ListOp
+      ? readonly V[]
+      : P extends RangeOp
+        ? readonly [V, V]
+        : V;
 
-/** The filter arguments of a read: each named field, as a set matched with `in (…)`. `R` names the filters a read must carry. See docs/queries.md. */
-export type Filters<E, K extends keyof E, R extends K = never> = { [P in R]: FilterValue<E[P]> } & Partial<{
-    [P in Exclude<K, R>]: FilterValue<E[P]>;
-}>;
-
-/** The scalar field names of `E`: the fields a branch's `filter`, `order`, or `where` may name. See docs/queries.md. */
+/** The scalar field names of `E`: the fields a branch's `filters` or `order` may name. See docs/queries.md. */
 export type ScalarKeys<E> = {
     [K in keyof E]-?: Scalar<E[K]> extends true ? K : never;
 }[keyof E];
 
+/** Each filterable field mapped to the operators its `@queryFilter ops=` names, as the generator writes them. See docs/queries.md. */
+export type FilterOps<E> = Partial<Record<keyof E, PropertyKey>>;
+
+/** One comparison on one column of `E`, restricted to that column's `@queryFilter ops=`. See docs/queries.md. */
+export type Filter<E, O extends FilterOps<E>> = {
+    [K in keyof O & keyof E]?: {
+        [P in Extract<NonNullable<O[K]>, PropertyKey>]?: OperatorValue<P, NonNullable<E[K]>>;
+    };
+};
+
+/** The filters a read must name first, one entry per required column. See docs/queries.md. */
+type RequiredFilters<E, O extends FilterOps<E>, R extends readonly (keyof E)[]> = {
+    [I in keyof R]: { [K in R[I] & keyof O]-?: NonNullable<Filter<E, O>[K]> };
+};
+
+/** The filters of a read, combined with `and`, so one column may carry more than one. `R` names the columns a read must filter. See docs/queries.md. */
+export type Filters<
+    E,
+    O extends FilterOps<E>,
+    R extends readonly (keyof E)[] = [],
+> = R extends readonly [] ? readonly Filter<E, O>[] : readonly [...RequiredFilters<E, O, R>, ...Filter<E, O>[]];
+
 /** The arguments of a read over `E`, as a branch carries them: the same shape a root read takes. See docs/queries.md. */
 export type QueryArgs<E> = {
     select: Selection<E>;
-    filter?: { [K in ScalarKeys<E>]?: FilterValue<E[K]> };
+    filters?: Filters<E, Partial<Record<keyof E, CompareOp>>>;
     order?: readonly (readonly [field: ScalarKeys<E>, direction: Direction])[];
-    where?: { [K in ScalarKeys<E>]?: { [P in CompareOp]?: P extends NullOp ? true : NonNullable<E[K]> } };
     limit?: number;
     offset?: number;
 };

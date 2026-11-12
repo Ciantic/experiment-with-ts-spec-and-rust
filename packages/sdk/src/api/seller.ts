@@ -22,7 +22,7 @@ export type QuerySellerErrors =
     | HttpError;
 
 /**
- * Query `Seller` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `Seller` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -33,7 +33,7 @@ export type QuerySellerErrors =
  */
 export function querySeller<S extends Selection<Seller>>(
     opts: {
-        filter?: Filters<Seller, "id" | "tenantId">;
+        filters?: Filters<Seller, { id: "eq"; tenantId: "eq" }>;
         limit?: number;
         offset?: number;
         select: S;

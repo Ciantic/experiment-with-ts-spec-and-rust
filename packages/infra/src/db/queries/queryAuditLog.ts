@@ -7,7 +7,7 @@ import { queryModel } from "./model.ts";
 
 const resolver = createResolver(queryModel);
 
-/** Query `AuditLog` rows, filtered by the `@queryFilter` fields, combined with and. */
-export function queryAuditLog<S extends Selection<AuditLog>>(db: SqlExecutor, opts: { filter?: Filters<AuditLog, "id">; limit?: number; offset?: number; select: S }): Promise<Selected<AuditLog, S>[]> {
-    return resolver.resolveMany<AuditLog, S>(db, "audit_log", opts.filter ?? {}, { select: opts.select, limit: opts.limit, offset: opts.offset });
+/** Query `AuditLog` rows over the filters it carries, combined with and. */
+export function queryAuditLog<S extends Selection<AuditLog>>(db: SqlExecutor, opts: { filters?: Filters<AuditLog, { id: "eq" }>; limit?: number; offset?: number; select: S }): Promise<Selected<AuditLog, S>[]> {
+    return resolver.resolveMany<AuditLog, S>(db, "audit_log", { select: opts.select, filters: opts.filters, limit: opts.limit, offset: opts.offset });
 }

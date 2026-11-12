@@ -60,7 +60,7 @@ export interface Invoice {
      * The identifier of the customer this invoice is issued to.
      * 
      * @fieldName Customer ID
-     * @queryFilter
+     * @queryFilter ops=eq,any
      * @foreignKey Customer scope=tenantId
      * @widget text
      */
@@ -79,7 +79,7 @@ export interface Invoice {
      * The identifier of the seller this invoice is issued by.
      * 
      * @fieldName Seller ID
-     * @queryFilter
+     * @queryFilter ops=eq,any
      * @foreignKey Seller scope=tenantId
      * @widget text
      */
@@ -106,7 +106,7 @@ export interface Invoice {
      * The date the invoice was issued.
      * 
      * @fieldName Issue date
-     * @queryWhere gte lte
+     * @queryFilter ops=gte,lte,between
      * @widget date
      */
     issueDate?: Date;

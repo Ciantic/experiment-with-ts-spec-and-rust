@@ -36,7 +36,7 @@ use infra::db::queries::{
     InvoiceDeletedAtFilter, InvoiceOrderField, InvoiceReadOptions, InvoiceSelectField, InvoiceTenantIdFilter,
     query_invoice,
 };
-use infra::db::{Comparison, ReadError};
+use infra::db::ReadError;
 use models::domain::invoicing_service::invoice::InvoiceSelect;
 use models::domain::user_service::tenant::TenantId;
 use sqlx::PgPool;
@@ -53,8 +53,8 @@ async fn open_invoices(
         InvoiceSelectField::TotalAmount,
         InvoiceSelectField::CreatedAt,
     ])
-    .filter(InvoiceTenantIdFilter(Comparison::Eq(tenant.clone())))
-    .filter(InvoiceDeletedAtFilter(Comparison::IsNull))
+    .filter(InvoiceTenantIdFilter::Eq(tenant.clone()))
+    .filter(InvoiceDeletedAtFilter::Eq(now))
     .order(InvoiceOrderField::CreatedAt.desc().nulls_last())
     .limit(limit);
 
@@ -72,11 +72,11 @@ be passed straight in, and the same column may be filtered more than once:
 
 ```rust
 let options = InvoiceReadOptions::default()
-    .filter(InvoiceTenantIdFilter(Comparison::Eq(tenant.clone())))
-    .filter(InvoiceTenantIdFilter(Comparison::Any(other_tenants.clone())))
+    .filter(InvoiceTenantIdFilter::Eq(tenant.clone()))
+    .filter(InvoiceTenantIdFilter::Any(other_tenants.clone()))
     .filter_or([
-        InvoiceTenantIdFilter(Comparison::Eq(tenant.clone())),
-        InvoiceTenantIdFilter(Comparison::Eq(other_tenant)),
+        InvoiceTenantIdFilter::Eq(tenant.clone()),
+        InvoiceTenantIdFilter::Eq(other_tenant),
     ])
     .limit(1);
 ```
@@ -93,8 +93,8 @@ mixes columns converts each item, `InvoiceFilter::from(filter)`:
 
 ```rust
 .filter_or([
-    InvoiceFilter::from(InvoiceDeletedAtFilter(Comparison::IsNotNull)),
-    InvoiceFilter::from(InvoiceTenantIdFilter(Comparison::Ne(tenant.clone()))),
+    InvoiceFilter::from(InvoiceDeletedAtFilter::Eq(now)),
+    InvoiceFilter::from(InvoiceTenantIdFilter::Neq(tenant.clone())),
 ])
 ```
 
@@ -123,14 +123,14 @@ Each module names the entity's columns once, as one type per capability:
 | --- | --- | --- |
 | `WidgetSelectField` | every column | one variant per selectable column |
 | `WidgetOrderField` | `@queryOrderBy` | one variant per orderable column, with `WidgetOrder` as the clause it builds |
-| `Widget<Title>Filter` | one column | one filterable column's comparisons |
-| `WidgetFilter` | `@queryFilter` and `@queryWhere` | one variant per filter column, plus `and` and `or` groups |
+| `Widget<Title>Filter` | one column | one variant per operator its `@queryFilter ops=` names |
+| `WidgetFilter` | `@queryFilter` | one variant per filter column, plus `and` and `or` groups |
 
 A column an `@inlined` branch reaches through that branch is not selectable by
 name, so it is absent from `WidgetSelectField`. An entity that declares no
 ordering column gets an `WidgetOrderField` with no variants, so a caller cannot
-name one. A column the spec does not mark `@queryFilter` or `@queryWhere` has no
-filter type of its own, so there is nothing to pass to `filter`.
+name one. A column the spec does not mark `@queryFilter` has no filter type of its
+own, so there is nothing to pass to `filter`.
 
 The select and order enums carry `ALL`, `as_str`, and `Display`, plus the helper
 their capability needs:
@@ -147,22 +147,16 @@ type, so a value of the wrong type does not compile, and a column the spec does
 not expose has no type to name:
 
 ```rust
-pub struct WidgetTenantIdFilter(pub Comparison<TenantId>);
-```
-
-`Comparison<T>` is the operator vocabulary over one value type:
-
-```rust
-pub enum Comparison<T> {
-    Eq(T),
-    Ne(T),
-    Any(Vec<T>),
-    IsNull,
-    IsNotNull,
+pub enum WidgetTenantIdFilter {
+    Eq(TenantId),
+    Neq(TenantId),
 }
 ```
 
-The umbrella enum collects every column's type, plus the groups:
+The variants are the column's `@queryFilter ops=` and nothing else, and each one
+carries the model type of that column, so a value of the wrong type does not
+compile and a comparison the spec omits cannot be written. The umbrella enum
+collects every column's type, plus the groups:
 
 ```rust
 #[serde(rename_all = "camelCase")]
@@ -183,8 +177,8 @@ be filtered more than once:
 
 ```rust
 WidgetReadOptions::default()
-    .filter(WidgetTenantIdFilter(Comparison::Eq(tenant.clone())))
-    .filter(WidgetTenantIdFilter(Comparison::Any(other_tenants)))
+    .filter(WidgetTenantIdFilter::Eq(tenant.clone()))
+    .filter(WidgetTenantIdFilter::Any(other_tenants))
 // "tenantId" = $1 AND "tenantId" = ANY($2)
 ```
 
@@ -192,8 +186,8 @@ WidgetReadOptions::default()
 
 ```rust
 .filter_or([
-    WidgetTenantIdFilter(Comparison::Eq(a)),
-    WidgetTenantIdFilter(Comparison::Eq(b)),
+    WidgetTenantIdFilter::Eq(a),
+    WidgetTenantIdFilter::Eq(b),
 ])
 // ("tenantId" = $1 OR "tenantId" = $2)
 ```
@@ -206,38 +200,41 @@ Lowering a filter to the builder's statement happens once, inside the module:
 converts the typed value to a bind parameter. It is the only fallible step, and
 only a value with no JSON form can fail it.
 
-## `@queryWhere` ranges
+## Operators
 
-A column annotated `@queryWhere` gets an enum of exactly the operators the spec
-whitelists, so one filter bounds the value from one side, and two filter it from
-both:
-
-```rust
-/// A comparison on `Widget.issueDate`, limited to its `@queryWhere` operators.
-pub enum WidgetIssueDateFilter {
-    Gte(chrono::DateTime<chrono::Utc>),
-    Lte(chrono::DateTime<chrono::Utc>),
-}
-```
+A column's variant list is exactly its `@queryFilter ops=`, so a range is two
+filters on one column and the operators no annotation names cannot be written:
 
 ```rust
-WidgetReadOptions::default()
-    .filter(WidgetIssueDateFilter::Gte(from))
-    .filter(WidgetIssueDateFilter::Lte(to))
+WidgetIssueDateFilter::Gte(from)
+WidgetIssueDateFilter::Lte(to)
 // "issueDate" >= $1 AND "issueDate" <= $2
 ```
 
-A null test is a variant with no value, matching the TypeScript `Where` shape:
+How many values a variant carries follows its operator, which is what makes the
+wire shape unambiguous:
+
+| Operators | Variant payload |
+| --- | --- |
+| `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `ilike`, `notLike`, `notIlike` | the column's value |
+| `in`, `notIn`, `any`, `notAny` | `Vec` of the column's value |
+| `between`, `notBetween` | two values |
+| `isNull`, `isNotNull` | nothing |
 
 ```rust
-WidgetConsumedAtFilter::IsNull
-// "consumedAt" IS NULL
+WidgetDeletedAtFilter::IsNull                 // "deletedAt" IS NULL
+WidgetCustomerIdFilter::Any(customer_ids)     // "customerId" = ANY($1)
+WidgetIssueDateFilter::Between(from, to)      // "issueDate" BETWEEN $1 AND $2
 ```
 
-The enum only names the operators the annotation declares: an `@queryWhere gte
-lte` column cannot be compared with `gt`, and the JSON decode rejects it. A
-column carrying both `@queryFilter` and `@queryWhere` is a generator error,
-because both would name the same filter type.
+A column with no `ops=` offers `eq` alone, which is why a bare `@queryFilter`
+reads as an equality filter:
+
+```rust
+pub enum WidgetTenantIdFilter {
+    Eq(TenantId),
+}
+```
 
 ## Read options
 
@@ -264,7 +261,7 @@ The options are built either literally or fluently:
 
 ```rust
 let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
-    .filter(WidgetTenantIdFilter(Comparison::Eq(tenant_id)))
+    .filter(WidgetTenantIdFilter::Eq(tenant_id))
     .order(WidgetOrderField::CreatedAt.desc().nulls_last())
     .limit(50);
 ```
@@ -331,9 +328,8 @@ Decoding rejects everything the entity's own types do not allow:
 - An unknown key in the options or in an ordering clause is an error.
 - A column the entity does not declare is an error, and so is a column that
   carries no `@queryFilter` in `filters` or no `@queryOrderBy` in `order`.
-- An operator the filter does not offer is an error, so a payload cannot reach a
-  comparison the spec does not allow. That includes a `@queryWhere` column
-  compared with an operator its annotation omits.
+- An operator the column's `ops=` does not name is an error, so a payload cannot
+  reach a comparison the spec does not allow.
 - A value of the wrong type is an error at decode: `{"tenantId": {"eq": true}}`
   fails because a `TenantId` is not a boolean. Nothing is coerced and no
   separate validation pass is needed.

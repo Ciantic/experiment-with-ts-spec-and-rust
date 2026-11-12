@@ -1,15 +1,14 @@
 /** Map the parsed spec to the Postgres table model shared by the generators. See docs/schema-generation.md. */
 import {
-    isCompareOperator,
     isInsertable,
     isUpdatable,
-    type CompareOperator,
     type Diagnostic,
     type FilterDefault,
     type ForeignKey,
-    type ReferentialAction,
     type OrderDirection,
     type PgTrigger,
+    type QueryOperator,
+    type ReferentialAction,
     type SpecInterface,
     type SpecLocation,
     type SpecModel,
@@ -63,12 +62,10 @@ export interface Column {
     setOnce?: boolean;
     /** What a patch falls back to when it omits the column, e.g. `now()` for an update clock. */
     refresh?: string;
-    /** An equality filter of the generated `query` read; `required` forces it and `default=<value>` fills it in. See docs/queries.md. */
-    queryFilter?: { required: boolean; default?: FilterDefault };
+    /** A filter of the generated `query` read, over the comparisons its `ops` whitelists. See docs/queries.md. */
+    queryFilter?: { default?: FilterDefault; ops: QueryOperator[] };
     /** The field is an ordering key; `default` makes it the entity's default ordering. See docs/queries.md. */
     queryOrder?: { default?: OrderDirection };
-    /** The comparison operators the field may be compared with. See docs/queries.md. */
-    where?: CompareOperator[];
     /** False when a create never writes the column: `@pgDefault`, or a stored computation it can derive. */
     insertable: boolean;
     /** False when a patch never writes the column: a branch, a default, or a nullable computation. */
@@ -410,11 +407,6 @@ function addScalarColumn(
     }
     if (tags.queryOrderBy !== undefined) {
         column.queryOrder = tags.queryOrderBy;
-    }
-    // Only known operators reach the model; the linter reports an unknown one instead.
-    const operators = tags.queryWhere?.filter(isCompareOperator);
-    if (operators && operators.length > 0) {
-        column.where = operators;
     }
     if (resolved?.checkValues) {
         column.checkValues = resolved.checkValues;

@@ -22,7 +22,7 @@ export type QueryEmailErrors =
     | HttpError;
 
 /**
- * Query `Email` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `Email` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -33,7 +33,7 @@ export type QueryEmailErrors =
  */
 export function queryEmail<S extends Selection<Email>>(
     opts: {
-        filter?: Filters<Email, "id" | "tenantId" | "status">;
+        filters?: Filters<Email, { id: "eq"; tenantId: "eq"; status: "eq" }>;
         order?: Order<"createdAt" | "updatedAt">[];
         limit?: number;
         offset?: number;

@@ -63,31 +63,24 @@ function filterKeys(filters: string[]): string {
     return filters.map((name) => JSON.stringify(name)).join(" | ");
 }
 
-/** `Where<Widget, { size: "gt" | "gte" }>`. */
-function whereType(name: string, fields: { name: string; operators: string[] }[]): string {
+/** The operator map a `Filters` takes: `{ size: "gt" | "gte" }`. */
+function operatorMap(fields: { name: string; operators: string[] }[]): string {
     const entries = fields.map((field) => `${field.name}: ${filterKeys(field.operators)}`);
-    return `Where<${name}, { ${entries.join("; ")} }>`;
+    return `{ ${entries.join("; ")} }`;
 }
 
-/** The properties of the `query` options: a filter, ordering, comparisons, paging, and the selection. */
+/** The properties of the `query` options: the filters, ordering, paging, and the selection. */
 function queryOpts(
     name: string,
-    filters: string[],
-    required: string[],
     order: string[],
     where: { name: string; operators: string[] }[],
 ): string[] {
     const parts: string[] = [];
-    if (filters.length > 0) {
-        // A required filter makes the whole object mandatory, exactly as the server's own read types do.
-        const keys = required.length > 0 ? `${filterKeys(filters)}, ${filterKeys(required)}` : filterKeys(filters);
-        parts.push(`${required.length > 0 ? "filter" : "filter?"}: Filters<${name}, ${keys}>`);
+    if (where.length > 0) {
+        parts.push(`filters?: Filters<${name}, ${operatorMap(where)}>`);
     }
     if (order.length > 0) {
         parts.push(`order?: Order<${filterKeys(order)}>[]`);
-    }
-    if (where.length > 0) {
-        parts.push(`where?: ${whereType(name, where)}`);
     }
     parts.push("limit?: number", "offset?: number", "select: S");
     return parts;
@@ -207,7 +200,7 @@ function entitySummary(entity: RestEntity, kind: RestKind): string {
     const name = entity.entity;
     switch (kind) {
         case "query":
-            return `Query \`${name}\` rows, filtered by the \`@queryFilter\` fields, combined with and.`;
+            return `Query \`${name}\` rows over the filters it carries, combined with and.`;
         case "watch":
             return `The change stream of \`${name}\`, optionally scoped to rows and operations. See docs/notifications.md.`;
         case "create":
@@ -255,14 +248,11 @@ export function renderClientModule(entity: RestEntity): string {
     ].sort((a, b) => a.localeCompare(b));
 
     const selectionTypes = ["Selection", "Selected"];
-    if (entity.filters.length > 0) {
+    if (entity.whereFields.length > 0) {
         selectionTypes.push("Filters");
     }
     if (entity.orderFields.length > 0) {
         selectionTypes.push("Order");
-    }
-    if (entity.whereFields.length > 0) {
-        selectionTypes.push("Where");
     }
     selectionTypes.sort((a, b) => a.localeCompare(b));
 
@@ -346,7 +336,7 @@ export function renderClientModule(entity: RestEntity): string {
         lines.push(...callPreamble(query.id, [entitySummary(entity, "query")], entityCallErrors(entity, query)));
         lines.push(`export function ${query.id}<S extends Selection<${name}>>(`);
         lines.push("    opts: {");
-        for (const property of queryOpts(name, entity.filters, entity.requiredFilters, entity.orderFields, entity.whereFields)) {
+        for (const property of queryOpts(name, entity.orderFields, entity.whereFields)) {
             lines.push(`        ${property};`);
         }
         lines.push("    },");

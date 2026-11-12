@@ -7,7 +7,7 @@ import { queryModel } from "./model.ts";
 
 const resolver = createResolver(queryModel);
 
-/** Query `TenantSharedPermission` rows, filtered by the `@queryFilter` fields, combined with and. */
-export function queryTenantSharedPermission<S extends Selection<TenantSharedPermission>>(db: SqlExecutor, opts: { filter?: Filters<TenantSharedPermission, "id" | "ownerTenantId" | "sharedTenantId">; limit?: number; offset?: number; select: S }): Promise<Selected<TenantSharedPermission, S>[]> {
-    return resolver.resolveMany<TenantSharedPermission, S>(db, "tenant_shared_permission", opts.filter ?? {}, { select: opts.select, limit: opts.limit, offset: opts.offset });
+/** Query `TenantSharedPermission` rows over the filters it carries, combined with and. */
+export function queryTenantSharedPermission<S extends Selection<TenantSharedPermission>>(db: SqlExecutor, opts: { filters?: Filters<TenantSharedPermission, { id: "eq"; ownerTenantId: "eq"; sharedTenantId: "eq" }>; limit?: number; offset?: number; select: S }): Promise<Selected<TenantSharedPermission, S>[]> {
+    return resolver.resolveMany<TenantSharedPermission, S>(db, "tenant_shared_permission", { select: opts.select, filters: opts.filters, limit: opts.limit, offset: opts.offset });
 }

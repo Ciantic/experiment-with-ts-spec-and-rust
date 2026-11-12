@@ -11,7 +11,7 @@ Two rules decide every tag name, and both are checkable by eye.
 
 **A multi-word tag is camelCase.** `@fieldName`, `@createdAt`, `@updatedAt`,
 `@deletedAt`, `@primaryKey`, `@foreignKey`, `@tenantOwned`, `@queryFilter`, `@queryOrderBy`,
-`@queryWhere`, `@restRepository`, `@restQueries`. A one-word tag is lowercase:
+`@restRepository`, `@restQueries`. A one-word tag is lowercase:
 `@widget`, `@computed`, `@unique`, `@version`, `@relation`, `@children`,
 `@inlined`, `@primitive`, `@tenant`, `@repository`, `@queries`, `@plural`, `@zod`.
 
@@ -27,7 +27,7 @@ reference is composite.
 are both visible, so `pg` marks the dialect and the capital marks the word: a
 portable SQL concept stays unprefixed (`@primaryKey`, `@foreignKey`, `@unique`),
 and a tag that only a query read consumes carries `query` instead (`@queryFilter`,
-`@queryOrderBy`, `@queryWhere`). See "Why the expressions live in the spec".
+`@queryOrderBy`). See "Why the expressions live in the spec".
 
 ## Discovery
 
@@ -121,24 +121,17 @@ Field tags:
   and the statement increments the stored value. The field is required, at most
   one per interface, the field type must be `Version`, and it is exclusive with
   `@computed`. See `docs/versioning.md`.
-- `@queryFilter` — a bare marker that makes the field a filter of the entity's
-  generated reads; `@queryFilter required` makes every read name it;
-  `@queryFilter default=<value>` matches that value when a read omits the
-  filter. A filter is a set matched with `= any($n)`; several are combined with
-  `and`. Scalar fields only; a branch field may not carry it, and it is redundant
-  on the `@primaryKey` field, which is an optional filter by default — `required`
-  is the one thing it can add. See `docs/queries.md`.
+- `@queryFilter` — makes the field a filter of the entity's generated reads.
+  `@queryFilter ops=<op>,…` whitelists the comparisons the column offers,
+  `eq` alone when absent, and `@queryFilter default=<value>` matches that value
+  when a read omits the filter. A filter is one comparison on one column, and a
+  read's filters are combined with `and`. Scalar fields only; a branch field may
+  not carry it, and it is redundant on the `@primaryKey` field, which is a filter
+  by default. See `docs/queries.md`.
 - `@queryOrderBy` — makes the field an ordering key of the entity's generated
   reads. A bare marker whitelists the field; `@queryOrderBy default asc|desc`
   also makes it the entity's default ordering (at most one per interface).
   Scalar fields only; a branch field may not carry it. See `docs/queries.md`.
-- `@queryWhere <op>…` — whitelists the comparison operators the field may be narrowed
-  with, space-separated, one or more of `eq`, `ne`, `gt`, `gte`, `lt`, `lte`,
-  `isNull`, `isNotNull`.
-  The list is required: a bare `@queryWhere` is a lint finding. The two null
-  tests take `true`, bind no parameter, and need an optional field, whose column
-  can hold null. Scalar fields only; a branch field may not carry it. See
-  `docs/queries.md`.
 - `@watchAllFilter` / `@watchRowsFilter` — bare markers on a stored scalar
   column whose value that scope's change payload also carries, so a subscriber
   can filter on it. They require `@watchAll` / `@watchRows` respectively; a
@@ -766,8 +759,7 @@ SQL concept stays unprefixed: `@primaryKey`, `@foreignKey`, `@unique`, and the
 two clock tags.
 
 The `query` prefix marks the other kind of consumer-only tag: `@queryFilter`,
-`@queryOrderBy`, and `@queryWhere` describe a generated read rather than a
-column. They emit no DDL, so a reader scanning for storage can skip them, and a
+and `@queryOrderBy` describe a generated read rather than a column. They emit no DDL, so a reader scanning for storage can skip them, and a
 tag that is neither storage nor query carries no prefix at all.
 
 The same convention reaches the parsed model, so a consumer can tell a Postgres
@@ -872,14 +864,14 @@ Enforced:
   because a nullable scope skips the composite check, and it may not link to a
   required owner, because a global row has no tenant to agree on. See
   `docs/tenancy.md`.
-- `@queryFilter` is a bare marker on a scalar field, or `required`, or
-  `default=<value>`: the keywords `isNull` and `isNotNull`, a boolean, a number,
+- `@queryFilter` takes no value on a scalar field, or `ops=<op>,…`, or
+  `default=<value>` — the keywords `isNull` and `isNotNull`, a boolean, a number,
   or a string (a bare token is a string, and so is a quoted keyword). A branch
-  field may not carry it; on the `@primaryKey` field, which is an optional filter
-  already, only `required` is accepted; a null-test default needs an optional
-  field; and `required` with a default is a finding, since the default would never
-  apply. The retired `default=null` is reported as `default=isNull`. See
-  `docs/queries.md`.
+  field may not carry it and it adds nothing to the `@primaryKey` field, which is
+  a filter already; a null-test default needs an optional field; `ops=` needs at
+  least one operator and names only the ones in `docs/queries.md`, and either
+  null test in it needs an optional field. The retired `default=null` is reported
+  as `default=isNull`. See `docs/queries.md`.
 - `@deletedAt` takes no value, sits on an optional `Date` field that carries
   `@queryFilter default=isNull`, and may not sit on a branch field. The field's own
   tags already require the nullable column and the filter, so the marker reports
@@ -887,9 +879,6 @@ Enforced:
 - `@queryOrderBy` is a bare marker on a scalar field, or `default asc|desc`; a
   branch field may not carry it, and at most one field may declare the default.
   See `docs/queries.md`.
-- `@queryWhere` requires at least one operator, each one of `eq`, `ne`, `gt`, `gte`,
-  `lt`, `lte`, `isNull`, `isNotNull`; a branch field may not carry it, and a null
-  test needs an optional field. See `docs/queries.md`.
 - `@todo` may sit on an interface, a method, or a field, and must carry the text
   saying what is left to do. On an interface or a method it defers generation;
   on a field it is a note and nothing else. A type alias and a contract's own

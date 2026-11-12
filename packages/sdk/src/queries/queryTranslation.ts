@@ -11,10 +11,9 @@ export const queryTranslationSelectSchema = z.lazy(() =>
 );
 
 export const queryTranslationSchema = z.strictObject({
-    filter: z.strictObject({
-        lang: z.array(z.string()).exactOptional(),
-        key: z.array(z.string()).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ lang: z.strictObject({ eq: z.string().exactOptional() }) }), z.strictObject({ key: z.strictObject({ eq: z.string().exactOptional() }) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryTranslationSelectSchema,

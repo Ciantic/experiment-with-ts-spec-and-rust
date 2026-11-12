@@ -3,7 +3,7 @@ import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { INFRA_CRATE_ROOT } from "../paths.ts";
 import { rustModelItemPath, rustValueType, snakeName, variantIdentifier } from "../models-rs/generate-models.ts";
-import { loadSpec, type SpecModel } from "../spec/spec-model.ts";
+import { loadSpec, operatorArity, type QueryOperator, type SpecModel } from "../spec/spec-model.ts";
 import { buildSpecTables, type Table } from "./postgres-model.ts";
 
 /** The channels a run reports on: the console, or a caller's own sink. */
@@ -96,38 +96,34 @@ export function selectableFields(table: Table): string[] {
     return table.columns.map((column) => column.name).filter((name) => !inlined.has(name));
 }
 
-/** A filter field: its column, the Postgres type it binds as, and the Rust type of a value it compares. */
+/** A filter field: its column, the Postgres type it binds as, the comparisons it permits, and a value's Rust type. */
 export interface FilterFieldInfo {
     name: string;
     sqlType: string;
     /** The model's Rust type for this column; `Value` when the spec shape has no Rust equivalent. */
     valueType: string;
+    /** The comparisons the column's `@queryFilter ops=` whitelists, in canonical order. */
+    operators: QueryOperator[];
     /** `use` statements for a value type declared in another model module. */
     imports: string[];
 }
 
-/** The fields an entity exposes as filters, with the model type each value must have. */
+/** The fields an entity exposes as filters, with the comparisons and model type each takes. */
 export function filterFields(table: Table, spec?: SpecModel): FilterFieldInfo[] {
     return table.columns
         .filter((column) => column.queryFilter !== undefined)
-        .map((column) => describeColumn(table, column, spec));
-}
-
-/** A `@queryWhere` column: the comparisons it permits and the model type each takes. */
-export interface WhereFieldInfo extends FilterFieldInfo {
-    /** The operators the spec whitelists, e.g. `["gte", "lte"]`. */
-    operators: string[];
-}
-
-/** The fields an entity exposes as whitelisted comparisons, from `@queryWhere`. */
-export function whereFields(table: Table, spec?: SpecModel): WhereFieldInfo[] {
-    return table.columns
-        .filter((column) => column.where !== undefined && column.where.length > 0)
-        .map((column) => ({ ...describeColumn(table, column, spec), operators: column.where ?? [] }));
+        .map((column) => ({
+            ...describeColumn(table, column, spec),
+            operators: column.queryFilter?.ops ?? [],
+        }));
 }
 
 /** A column as a filter field: its name, Postgres type, and the model type of a value it compares. */
-function describeColumn(table: Table, column: Table["columns"][number], spec?: SpecModel): FilterFieldInfo {
+function describeColumn(
+    table: Table,
+    column: Table["columns"][number],
+    spec?: SpecModel,
+): Omit<FilterFieldInfo, "operators"> {
     const entity = spec?.interfaces.get(table.interfaceName);
     const property = entity?.properties.find((candidate) => candidate.name === column.name);
     const resolved = property === undefined || spec === undefined ? undefined : rustValueType(spec, property);
@@ -139,44 +135,30 @@ function describeColumn(table: Table, column: Table["columns"][number], spec?: S
     };
 }
 
-/** The `Comparison` operator a `@queryWhere` operator names. */
-const WHERE_OPERATORS: Readonly<Record<string, string>> = {
+/** The query builder's operator for a `@queryFilter ops=` token. */
+const FILTER_OPERATORS: Readonly<Record<QueryOperator, string>> = {
     eq: "Eq",
-    ne: "Neq",
+    neq: "Neq",
     gt: "Gt",
     gte: "Gte",
     lt: "Lt",
     lte: "Lte",
+    like: "Like",
+    ilike: "ILike",
+    notLike: "NotLike",
+    notIlike: "NotILike",
+    in: "In",
+    notIn: "NotIn",
+    any: "Any",
+    notAny: "NotAny",
     isNull: "IsNull",
     isNotNull: "IsNotNull",
+    between: "Between",
+    notBetween: "NotBetween",
 };
 
-/** Whether a `@queryWhere` operator tests for null and so carries no value. */
-function isNullOperator(operator: string): boolean {
-    return operator === "isNull" || operator === "isNotNull";
-}
-
-/** A column carrying both tags, which would generate two fields with one name. */
-export interface Overlap {
-    table: Table;
-    column: string;
-}
-
-/** The columns that carry both `@queryFilter` and `@queryWhere`. */
-export function overlappingFields(tables: Map<string, Table>): Overlap[] {
-    const overlaps: Overlap[] = [];
-    for (const table of tables.values()) {
-        for (const column of table.columns) {
-            if (column.queryFilter !== undefined && column.where !== undefined && column.where.length > 0) {
-                overlaps.push({ table, column: column.name });
-            }
-        }
-    }
-    return overlaps;
-}
-
-/** The type of one `@queryWhere` column's comparison, e.g. `Invoice` + `issueDate` -> `InvoiceIssueDateFilter`. */
-export function whereTypeName(entity: string, field: string): string {
+/** The type of one filter column's comparisons, e.g. `Invoice` + `issueDate` -> `InvoiceIssueDateFilter`. */
+export function filterTypeName(entity: string, field: string): string {
     return `${entity}${variantIdentifier(field)}Filter`;
 }
 
@@ -278,16 +260,6 @@ function selectHelper(): string[] {
     ];
 }
 
-/** The type name of one field's comparison, e.g. `Comparison<TenantId>`. */
-function comparisonType(field: FilterFieldInfo): string {
-    return `Comparison<${field.valueType}>`;
-}
-
-/** The type of one `@queryFilter` column's comparison, e.g. `Invoice` + `tenantId` -> `InvoiceTenantIdFilter`. */
-export function filterBuilderName(entity: string, field: string): string {
-    return `${entity}${variantIdentifier(field)}Filter`;
-}
-
 /** A call as rustfmt writes it: one line when it fits, one argument per line otherwise. */
 function call(expression: string, args: string[], indent: number, suffix = ""): string[] {
     const pad = " ".repeat(indent);
@@ -298,44 +270,46 @@ function call(expression: string, args: string[], indent: number, suffix = ""): 
     return [`${pad}${expression}(`, ...args.map((arg) => `${pad}    ${arg},`), `${pad})${suffix}`];
 }
 
-/** Render one filter column's comparison newtype, e.g. `InvoiceTenantIdFilter`. */
-function renderComparisonFilter(entity: string, field: FilterFieldInfo): string[] {
-    const name = filterBuilderName(entity, field.name);
-    return [
-        `/// A comparison on \`${entity}.${field.name}\`, whose value is that column's model type.`,
-        "#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]",
-        "#[serde(transparent)]",
-        `pub struct ${name}(pub ${comparisonType(field)});`,
-        "",
-        `impl ${name} {`,
-        "    /// The typed filter the planner binds.",
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        "    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {",
-        ...call(
-            "TypedFilter::comparison",
-            [JSON.stringify(field.name), `SqlType::${field.sqlType}`, "self.0"],
-            8,
-        ),
-        "    }",
-        "}",
-    ];
+/** The Rust payload of one operator's variant: none for a null test, two values for a range, a list for a set. */
+function operatorPayload(operator: QueryOperator, field: FilterFieldInfo): string {
+    switch (operatorArity(operator)) {
+        case 0:
+            return "";
+        case 2:
+            return `(${field.valueType}, ${field.valueType})`;
+        case "list":
+            return `(Vec<${field.valueType}>)`;
+        default:
+            return `(${field.valueType})`;
+    }
 }
 
-/** Render one `@queryWhere` column's comparison enum, e.g. `InvoiceIssueDateFilter`. */
-function renderWhereFilter(entity: string, field: WhereFieldInfo): string[] {
-    const name = whereTypeName(entity, field.name);
+/** The planner call that lowers one operator's variant, split so it lays out like rustfmt writes it. */
+function operatorLowering(operator: QueryOperator, field: FilterFieldInfo): { fn: string; args: string[] } {
+    const args = [JSON.stringify(field.name), `SqlType::${field.sqlType}`, `FilterOperator::${FILTER_OPERATORS[operator]}`];
+    switch (operatorArity(operator)) {
+        case 0:
+            return { fn: "TypedFilter::null_test", args };
+        case 2:
+            return { fn: "TypedFilter::pair", args: [...args, "lower", "upper"] };
+        case "list":
+            return { fn: "TypedFilter::list", args: [...args, "values"] };
+        default:
+            return { fn: "TypedFilter::one", args: [...args, "value"] };
+    }
+}
+
+/** Render one filter column's comparisons, e.g. `InvoiceTenantIdFilter`. */
+function renderFilterType(entity: string, field: FilterFieldInfo): string[] {
+    const name = filterTypeName(entity, field.name);
     const lines: string[] = [
-        `/// A comparison on \`${entity}.${field.name}\`, limited to its \`@queryWhere\` operators.`,
+        `/// A comparison on \`${entity}.${field.name}\`, limited to the operators \`@queryFilter ops=${field.operators.join(",")}\` whitelists.`,
         "#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]",
         '#[serde(rename_all = "camelCase")]',
         `pub enum ${name} {`,
     ];
     for (const operator of field.operators) {
-        const variant = variantIdentifier(operator);
-        lines.push(isNullOperator(operator) ? `    ${variant},` : `    ${variant}(${field.valueType}),`);
+        lines.push(`    ${variantIdentifier(operator)}${operatorPayload(operator, field)},`);
     }
     lines.push("}");
     lines.push("");
@@ -349,25 +323,27 @@ function renderWhereFilter(entity: string, field: WhereFieldInfo): string[] {
     lines.push("        Ok(match self {");
     for (const operator of field.operators) {
         const variant = variantIdentifier(operator);
-        const sqlOperator = `FilterOperator::${WHERE_OPERATORS[operator]}`;
-        const nullTest = isNullOperator(operator);
-        const expression = nullTest ? "TypedFilter::condition" : "TypedFilter::bound";
-        const args = nullTest
-            ? [JSON.stringify(field.name), `SqlType::${field.sqlType}`, sqlOperator, "None"]
-            : [JSON.stringify(field.name), `SqlType::${field.sqlType}`, sqlOperator, "value"];
-        const binding = nullTest ? `Self::${variant}` : `Self::${variant}(value)`;
-        const suffix = nullTest ? "" : "?";
-        const joined = args.join(", ");
-        const oneLine = `            ${binding} => ${expression}(${joined})${suffix},`;
-        const innerLine = `                ${expression}(${joined})${suffix}`;
+        const arity = operatorArity(operator);
+        const binding =
+            arity === 0
+                ? `Self::${variant}`
+                : arity === 2
+                  ? `Self::${variant}(lower, upper)`
+                  : arity === "list"
+                    ? `Self::${variant}(values)`
+                    : `Self::${variant}(value)`;
+        const { fn, args } = operatorLowering(operator, field);
+        // A null test binds nothing, so it is the one lowering that cannot fail.
+        const suffix = arity === 0 ? "" : "?";
+        const oneLine = `            ${binding} => ${fn}(${args.join(", ")})${suffix},`;
         if (oneLine.length <= MAX_LINE_WIDTH) {
             lines.push(oneLine);
-        } else if (joined.length <= FN_CALL_WIDTH && innerLine.length <= MAX_LINE_WIDTH) {
+        } else if (args.join(", ").length <= FN_CALL_WIDTH) {
             lines.push(`            ${binding} => {`);
-            lines.push(innerLine);
+            lines.push(...call(fn, args, 16, suffix));
             lines.push("            }");
         } else {
-            lines.push(`            ${binding} => ${expression}(`);
+            lines.push(`            ${binding} => ${fn}(`);
             for (const arg of args) {
                 lines.push(`                ${arg},`);
             }
@@ -380,13 +356,8 @@ function renderWhereFilter(entity: string, field: WhereFieldInfo): string[] {
     return lines;
 }
 
-/** The comparisons a column's filter carries: a `Comparison` newtype, or a where enum. */
-function columnFilterType(entity: string, field: FilterFieldInfo | WhereFieldInfo): string {
-    return "operators" in field ? whereTypeName(entity, field.name) : filterBuilderName(entity, field.name);
-}
-
 /** Render the entity's filter enum: one variant per column, plus the and / or groups. */
-function renderFilterEnum(entity: string, fields: FilterFieldInfo[], bounds: WhereFieldInfo[]): string[] {
+function renderFilterEnum(entity: string, fields: FilterFieldInfo[]): string[] {
     const filter = `${entity}Filter`;
     const lines: string[] = [
         `/// A filter over \`${entity}\`: a comparison on one of its columns, or a group of them.`,
@@ -396,9 +367,9 @@ function renderFilterEnum(entity: string, fields: FilterFieldInfo[], bounds: Whe
         '#[serde(rename_all = "camelCase")]',
         `pub enum ${filter} {`,
     ];
-    for (const field of [...fields, ...bounds]) {
+    for (const field of fields) {
         lines.push(`    /// A comparison on \`${field.name}\`.`);
-        lines.push(`    ${fieldVariant(field.name)}(${columnFilterType(entity, field)}),`);
+        lines.push(`    ${fieldVariant(field.name)}(${filterTypeName(entity, field.name)}),`);
     }
     lines.push("    /// Every child must match.");
     lines.push("    And(Vec<Self>),");
@@ -408,8 +379,8 @@ function renderFilterEnum(entity: string, fields: FilterFieldInfo[], bounds: Whe
     lines.push("");
 
     // One `From` per column type, so `filter(...)` takes a column's filter directly.
-    for (const field of [...fields, ...bounds]) {
-        const name = columnFilterType(entity, field);
+    for (const field of fields) {
+        const name = filterTypeName(entity, field.name);
         lines.push(`impl From<${name}> for ${filter} {`);
         lines.push(`    fn from(filter: ${name}) -> Self {`);
         lines.push(`        Self::${fieldVariant(field.name)}(filter)`);
@@ -426,7 +397,7 @@ function renderFilterEnum(entity: string, fields: FilterFieldInfo[], bounds: Whe
     lines.push("    /// Returns [`ReadError::Encode`] when a value has no JSON form.");
     lines.push("    pub(crate) fn into_typed_filters(self) -> Result<Vec<TypedFilter>, ReadError> {");
     lines.push("        match self {");
-    for (const field of [...fields, ...bounds]) {
+    for (const field of fields) {
         const arm = `            Self::${fieldVariant(field.name)}(filter) => Ok(vec![filter.into_typed_filter()?]),`;
         if (arm.length <= MAX_LINE_WIDTH) {
             lines.push(arm);
@@ -462,17 +433,13 @@ function renderFilterEnum(entity: string, fields: FilterFieldInfo[], bounds: Whe
 }
 
 /** Render every column's filter type, then the umbrella enum. */
-export function renderFilters(entity: string, fields: FilterFieldInfo[], bounds: WhereFieldInfo[]): string[] {
+export function renderFilters(entity: string, fields: FilterFieldInfo[]): string[] {
     const lines: string[] = [];
     for (const field of fields) {
-        lines.push(...renderComparisonFilter(entity, field));
+        lines.push(...renderFilterType(entity, field));
         lines.push("");
     }
-    for (const field of bounds) {
-        lines.push(...renderWhereFilter(entity, field));
-        lines.push("");
-    }
-    lines.push(...renderFilterEnum(entity, fields, bounds));
+    lines.push(...renderFilterEnum(entity, fields));
     return lines;
 }
 
@@ -686,19 +653,19 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const options = `${entity}ReadOptions`;
     const lines: string[] = [HEADER, ""];
     lines.push("use crate::db::{");
-    lines.push("    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,");
-    lines.push("    decode_rows,");
+    lines.push("    PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,");
     lines.push("};");
     const filters = filterFields(table, spec);
-    const bounds = whereFields(table, spec);
-    if (bounds.length > 0) {
-        lines.push("use datagrid_query::{Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection};");
-    } else {
-        lines.push("use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};");
+    const builderImports = ["Combinator", "NullsOrder", "SelectColumn", "Sort", "SortDirection"];
+    // Only a lowering names the builder's operator; an entity with no filter has none to name.
+    if (filters.length > 0) {
+        builderImports.push("FilterOperator");
     }
+    builderImports.sort();
+    lines.push(`use datagrid_query::{${builderImports.join(", ")}};`);
     const modelImports = new Set([
         `use ${selectTypePath(table)};`,
-        ...[...filters, ...bounds].flatMap((field) => field.imports),
+        ...filters.flatMap((field) => field.imports),
     ]);
     for (const importLine of [...modelImports].sort()) {
         lines.push(importLine);
@@ -709,7 +676,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const selectable: FieldInfo[] = selectableFields(table).map((name) => ({ name }));
     lines.push(...renderFieldEnum(entity, "Select", selectable, selectHelper()));
     lines.push("");
-    lines.push(...renderFilters(entity, filters, bounds));
+    lines.push(...renderFilters(entity, filters));
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may order by, from \`@queryOrderBy\`.`);
     lines.push(...fieldEnumDerive());
@@ -797,16 +764,6 @@ export function run(spec: SpecModel, argv: readonly string[] = process.argv, out
         output.error(`${diagnostic.filePath}:${diagnostic.line}: ${diagnostic.message}`);
     }
     if (diagnostics.length > 0) {
-        return 1;
-    }
-
-    const overlaps = overlappingFields(tables);
-    for (const overlap of overlaps) {
-        output.error(
-            `${overlap.table.interfaceName}.${overlap.column} carries both @queryFilter and @queryWhere; keep one`,
-        );
-    }
-    if (overlaps.length > 0) {
         return 1;
     }
 

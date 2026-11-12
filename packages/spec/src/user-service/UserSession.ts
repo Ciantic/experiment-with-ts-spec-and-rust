@@ -48,7 +48,7 @@ export interface UserSession {
      * The moment the session stops being accepted.
      *
      * @fieldName Expires at
-     * @queryWhere gt lte
+     * @queryFilter ops=gt,lte
      * @widget date
      */
     expiresAt: Date;
@@ -57,7 +57,7 @@ export interface UserSession {
      * The moment the session was revoked, which is null until sign-out.
      *
      * @fieldName Revoked at
-     * @queryWhere isNull isNotNull
+     * @queryFilter ops=isNull,isNotNull
      * @widget date
      */
     revokedAt?: Date;

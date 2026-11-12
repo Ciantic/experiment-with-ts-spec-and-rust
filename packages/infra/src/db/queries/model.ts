@@ -11,7 +11,12 @@ export const queryModel: QueryModel = {
                 "message": "message",
                 "createdAt": "createdAt"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ]
+            }
         },
         "customer": {
             "name": "customer",
@@ -30,7 +35,15 @@ export const queryModel: QueryModel = {
                 "updatedAt": "updatedAt",
                 "version": "version"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ]
+            }
         },
         "email": {
             "name": "email",
@@ -59,6 +72,17 @@ export const queryModel: QueryModel = {
             "defaultOrder": {
                 "field": "createdAt",
                 "direction": "asc"
+            },
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ],
+                "status": [
+                    "eq"
+                ]
             }
         },
         "invoice": {
@@ -108,9 +132,27 @@ export const queryModel: QueryModel = {
                 "direction": "asc"
             },
             "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ],
+                "customerId": [
+                    "eq",
+                    "any"
+                ],
+                "sellerId": [
+                    "eq",
+                    "any"
+                ],
                 "issueDate": [
                     "gte",
-                    "lte"
+                    "lte",
+                    "between"
+                ],
+                "deletedAt": [
+                    "eq"
                 ]
             },
             "filterDefaults": {
@@ -138,7 +180,15 @@ export const queryModel: QueryModel = {
                 "updatedAt": "updatedAt",
                 "version": "version"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ]
+            }
         },
         "invoice_sent": {
             "name": "invoice_sent",
@@ -195,6 +245,14 @@ export const queryModel: QueryModel = {
                     "table": "invoice_sent_row",
                     "column": "invoiceSentId"
                 }
+            },
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ]
             }
         },
         "invoice_sent_row": {
@@ -213,7 +271,15 @@ export const queryModel: QueryModel = {
                 "taxAmount": "taxAmount",
                 "totalAmount": "totalAmount"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ]
+            }
         },
         "login_link": {
             "name": "login_link",
@@ -230,6 +296,15 @@ export const queryModel: QueryModel = {
             },
             "relations": {},
             "where": {
+                "id": [
+                    "eq"
+                ],
+                "email": [
+                    "eq"
+                ],
+                "tokenHash": [
+                    "eq"
+                ],
                 "expiresAt": [
                     "gt",
                     "lte"
@@ -255,7 +330,15 @@ export const queryModel: QueryModel = {
                 "updatedAt": "updatedAt",
                 "version": "version"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "tenantId": [
+                    "eq"
+                ]
+            }
         },
         "tenant": {
             "name": "tenant",
@@ -267,7 +350,12 @@ export const queryModel: QueryModel = {
                 "updatedAt": "updatedAt",
                 "version": "version"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ]
+            }
         },
         "tenant_shared_permission": {
             "name": "tenant_shared_permission",
@@ -281,7 +369,18 @@ export const queryModel: QueryModel = {
                 "updatedAt": "updatedAt",
                 "version": "version"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "id": [
+                    "eq"
+                ],
+                "ownerTenantId": [
+                    "eq"
+                ],
+                "sharedTenantId": [
+                    "eq"
+                ]
+            }
         },
         "translation": {
             "name": "translation",
@@ -291,7 +390,15 @@ export const queryModel: QueryModel = {
                 "key": "key",
                 "value": "value"
             },
-            "relations": {}
+            "relations": {},
+            "where": {
+                "lang": [
+                    "eq"
+                ],
+                "key": [
+                    "eq"
+                ]
+            }
         },
         "user": {
             "name": "user",
@@ -307,9 +414,18 @@ export const queryModel: QueryModel = {
             },
             "relations": {},
             "where": {
+                "id": [
+                    "eq"
+                ],
+                "email": [
+                    "eq"
+                ],
                 "emailVerifiedAt": [
                     "isNull",
                     "isNotNull"
+                ],
+                "deletedAt": [
+                    "eq"
                 ]
             },
             "filterDefaults": {
@@ -333,6 +449,15 @@ export const queryModel: QueryModel = {
             },
             "relations": {},
             "where": {
+                "id": [
+                    "eq"
+                ],
+                "userId": [
+                    "eq"
+                ],
+                "tokenHash": [
+                    "eq"
+                ],
                 "expiresAt": [
                     "gt",
                     "lte"

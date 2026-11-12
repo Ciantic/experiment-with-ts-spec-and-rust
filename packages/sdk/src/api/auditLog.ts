@@ -20,7 +20,7 @@ export type QueryAuditLogErrors =
     | HttpError;
 
 /**
- * Query `AuditLog` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `AuditLog` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -31,7 +31,7 @@ export type QueryAuditLogErrors =
  */
 export function queryAuditLog<S extends Selection<AuditLog>>(
     opts: {
-        filter?: Filters<AuditLog, "id">;
+        filters?: Filters<AuditLog, { id: "eq" }>;
         limit?: number;
         offset?: number;
         select: S;

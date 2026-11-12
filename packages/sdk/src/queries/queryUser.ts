@@ -16,17 +16,9 @@ export const queryUserSelectSchema = z.lazy(() =>
 );
 
 export const queryUserSchema = z.strictObject({
-    filter: z.strictObject({
-        id: z.array(primitives.brandedIdSchema<"UserId">()).exactOptional(),
-        email: z.array(primitives.emailAddressSchema).exactOptional(),
-        deletedAt: z.union([z.array(z.date()), z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })]).exactOptional(),
-    }).exactOptional(),
-    where: z.strictObject({
-        emailVerifiedAt: z.strictObject({
-            isNull: z.literal(true).exactOptional(),
-            isNotNull: z.literal(true).exactOptional(),
-        }).exactOptional(),
-    }).exactOptional(),
+    filters: z.array(
+        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"UserId">().exactOptional() }) }), z.strictObject({ email: z.strictObject({ eq: primitives.emailAddressSchema.exactOptional() }) }), z.strictObject({ emailVerifiedAt: z.union([z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) }), z.strictObject({ deletedAt: z.strictObject({ eq: z.date().exactOptional() }) })]),
+    ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
     select: queryUserSelectSchema,

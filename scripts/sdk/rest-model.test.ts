@@ -24,13 +24,13 @@ export interface Widget {
     /** @queryFilter */
     size: string;
 
-    /** @queryFilter required */
+    /** @queryFilter */
     tenantId: string;
 
     /** @queryOrderBy default asc */
     createdAt: Date;
 
-    /** @queryWhere gte lte */
+    /** @queryFilter ops=gte,lte */
     amount: number;
 
     /** @version */
@@ -338,8 +338,7 @@ describe("buildRestModel", () => {
     it("records the filter fields, the keys, and the version fields", () => {
         const widget = model.entities.find((entity) => entity.entity === "Widget");
 
-        expect(widget?.filters).toEqual(["id", "size", "tenantId"]);
-        expect(widget?.requiredFilters).toEqual(["tenantId"]);
+        expect(widget?.whereFields.map((field) => field.name)).toEqual(["id", "size", "tenantId", "amount"]);
         expect(widget?.keys).toEqual(["id"]);
         expect(widget?.versionFields).toEqual(["version"]);
     });
@@ -516,8 +515,13 @@ export interface Bad {
         const widget = model.entities.find((entity) => entity.entity === "Widget");
         const marker = model.entities.find((entity) => entity.entity === "Marker");
 
-        expect(widget?.whereFields).toEqual([{ name: "amount", operators: ["gte", "lte"] }]);
-        expect(marker?.whereFields).toEqual([]);
+        expect(widget?.whereFields).toEqual([
+            { name: "id", operators: ["eq"] },
+            { name: "size", operators: ["eq"] },
+            { name: "tenantId", operators: ["eq"] },
+            { name: "amount", operators: ["gte", "lte"] },
+        ]);
+        expect(marker?.whereFields).toEqual([{ name: "id", operators: ["eq"] }]);
     });
 });
 

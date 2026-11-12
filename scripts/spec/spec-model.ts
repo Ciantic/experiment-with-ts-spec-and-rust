@@ -40,7 +40,6 @@ export const FIELD_TAGS = [
     "version",
     "queryFilter",
     "queryOrderBy",
-    "queryWhere",
     "watchAllFilter",
     "watchRowsFilter",
     "todo",
@@ -113,7 +112,8 @@ export const RETIRED_TAGS = new Map<string, string>([
     ["pgtype", "use @pgType instead"],
     ["queryfilter", "use @queryFilter instead"],
     ["queryorderby", "use @queryOrderBy instead"],
-    ["where", "use @queryWhere instead"],
+    ["where", "use @queryFilter ops=… instead"],
+    ["querywhere", "use @queryFilter ops=… instead"],
     ["type", "the TypeScript type already carries this; drop it"],
     ["values", "the TypeScript type already carries this; drop it"],
     ["formula", "put the expression on the field with @pgVirtual or @pgTrigger"],
@@ -205,18 +205,58 @@ export interface TenantOwnedTag {
 export const NULL_OPERATORS = ["isNull", "isNotNull"] as const;
 export type NullOperator = (typeof NULL_OPERATORS)[number];
 
-/** The comparison operators a `@queryWhere` field may name, in canonical order. */
-export const COMPARE_OPERATORS = ["eq", "ne", "gt", "gte", "lt", "lte", ...NULL_OPERATORS] as const;
-export type CompareOperator = (typeof COMPARE_OPERATORS)[number];
+/** The operators that compare a column with a list of values. See docs/queries.md. */
+export const LIST_OPERATORS = ["in", "notIn", "any", "notAny"] as const;
+export type ListOperator = (typeof LIST_OPERATORS)[number];
 
-/** True when the text is one of {@link COMPARE_OPERATORS}. */
-export function isCompareOperator(value: string): value is CompareOperator {
-    return (COMPARE_OPERATORS as readonly string[]).includes(value);
+/** The operators that bound a column from both sides, taking two values. See docs/queries.md. */
+export const RANGE_OPERATORS = ["between", "notBetween"] as const;
+export type RangeOperator = (typeof RANGE_OPERATORS)[number];
+
+/** The operators that compare a column with one value. See docs/queries.md. */
+export const VALUE_OPERATORS = ["eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "notLike", "notIlike"] as const;
+export type ValueOperator = (typeof VALUE_OPERATORS)[number];
+
+/** Every operator a `@queryFilter ops=` may name, in canonical order, spelled as the query builder spells them. See docs/queries.md. */
+export const QUERY_OPERATORS = [
+    ...VALUE_OPERATORS,
+    ...LIST_OPERATORS,
+    ...NULL_OPERATORS,
+    ...RANGE_OPERATORS,
+] as const;
+export type QueryOperator = (typeof QUERY_OPERATORS)[number];
+
+/** The value an operator takes: none for a null test, a list for a set, a pair for a range. */
+export type OperatorArity = 0 | 1 | 2 | "list";
+
+/** How many values an operator takes. See docs/queries.md. */
+export function operatorArity(operator: QueryOperator): OperatorArity {
+    if ((NULL_OPERATORS as readonly string[]).includes(operator)) {
+        return 0;
+    }
+    if ((LIST_OPERATORS as readonly string[]).includes(operator)) {
+        return "list";
+    }
+    if ((RANGE_OPERATORS as readonly string[]).includes(operator)) {
+        return 2;
+    }
+    return 1;
 }
 
-/** True when the operator tests for null and so takes no value. */
+/** True when the text is one of {@link QUERY_OPERATORS}. */
+export function isQueryOperator(value: string): value is QueryOperator {
+    return (QUERY_OPERATORS as readonly string[]).includes(value);
+}
+
+/** True when the text is one of {@link NULL_OPERATORS}. */
 export function isNullOperator(value: string): value is NullOperator {
     return (NULL_OPERATORS as readonly string[]).includes(value);
+}
+
+/** The operators in {@link QUERY_OPERATORS} order, de-duplicated; what a tag's `ops=` means once read. */
+export function canonicalOperators(operators: Iterable<QueryOperator>): QueryOperator[] {
+    const named = new Set(operators);
+    return QUERY_OPERATORS.filter((operator) => named.has(operator));
 }
 
 /** The value a filter matches when a read omits it, shared with the SDK's read types. See docs/queries.md. */
@@ -429,12 +469,10 @@ export interface Tags {
     zod?: string;
     /** A storage-layer type for the alias, e.g. `uuid`: what it declares, else what it inherits through its own type. */
     pgType?: string;
-    /** An equality filter of the generated `query` read; `required` forces it and `default=<value>` fills it in. See docs/queries.md. */
-    queryFilter?: { required: boolean; default?: FilterDefault };
+    /** A filter of the generated `query` read, over the operators `ops=` names, `eq` alone when absent. See docs/queries.md. */
+    queryFilter?: { default?: FilterDefault; ops: QueryOperator[] };
     /** The field may be an ordering key of its entity's generated `query` read. See docs/queries.md. */
     queryOrderBy?: { default?: OrderDirection };
-    /** The comparison operators the field may be compared with, as written. See docs/queries.md. */
-    queryWhere?: string[];
     /** The `@todo` text: it defers an interface or operation, and is a note on a field that changes nothing. See docs/spec-annotations.md. */
     todo?: string;
 }
@@ -970,8 +1008,13 @@ function parseWatchOps(value: string | undefined): TriggerEvent[] {
 }
 /** A parsed `@queryFilter` value: the options it names, and the tokens it does not understand. */
 export interface ParsedQueryFilter {
-    required: boolean;
     default?: FilterDefault;
+    /** The operators the tag names, in {@link QUERY_OPERATORS} order; `["eq"]` when it names none. */
+    ops: QueryOperator[];
+    /** True when `ops=` names no operator at all; the linter reports it. */
+    emptyOps: boolean;
+    /** Operators an `ops=` names that are not in the vocabulary; the linter reports them. */
+    unknownOps: string[];
     /** Tokens that name no option; the linter reports them. */
     unknown: string[];
     /** True when a `default=` token carries no value; the linter reports it. */
@@ -1043,14 +1086,30 @@ export function parseFilterDefault(text: string): FilterDefault | undefined {
 /** Parse a `@queryFilter` value into the options it names, so the parser and the linter agree on the vocabulary. */
 export function parseQueryFilter(value: string | undefined): ParsedQueryFilter {
     const parsed: ParsedQueryFilter = {
-        required: false,
+        ops: [],
+        emptyOps: false,
+        unknownOps: [],
         unknown: [],
         emptyDefault: false,
         nullSpelling: false,
     };
+    let wroteOps = false;
     for (const token of splitTagTokens(value ?? "")) {
-        if (token === "required") {
-            parsed.required = true;
+        if (token.startsWith("ops=")) {
+            wroteOps = true;
+            const operators: QueryOperator[] = [];
+            for (const text of token.slice("ops=".length).split(",")) {
+                const operator = text.trim();
+                if (operator === "") {
+                    continue;
+                }
+                if (isQueryOperator(operator)) {
+                    operators.push(operator);
+                } else {
+                    parsed.unknownOps.push(operator);
+                }
+            }
+            parsed.ops.push(...operators);
             continue;
         }
         if (!token.startsWith("default=")) {
@@ -1067,6 +1126,12 @@ export function parseQueryFilter(value: string | undefined): ParsedQueryFilter {
         } else {
             parsed.default = literal;
         }
+    }
+    parsed.ops = canonicalOperators(parsed.ops);
+    // A tag that never wrote `ops=` filters by equality, which is what makes `@queryFilter` alone useful.
+    if (parsed.ops.length === 0) {
+        parsed.emptyOps = wroteOps && parsed.unknownOps.length === 0;
+        parsed.ops = ["eq"];
     }
     return parsed;
 }
@@ -1229,11 +1294,11 @@ export function readTags(holder: { getJsDocs(): JSDoc[] }): Tags {
                     if (value !== undefined) tags.pgType ??= value;
                     break;
                 case "queryFilter": {
-                    // Bare marks the field filterable; `required` and `default=<value>` add options.
+                    // Bare marks the field filterable; `default=<value>` and `ops=` add options.
                     if (tags.queryFilter === undefined) {
                         const parsed = parseQueryFilter(value);
-                        const filter: { required: boolean; default?: FilterDefault } = {
-                            required: parsed.required,
+                        const filter: { default?: FilterDefault; ops: QueryOperator[] } = {
+                            ops: parsed.ops,
                         };
                         if (parsed.default !== undefined) {
                             filter.default = parsed.default;
@@ -1251,13 +1316,6 @@ export function readTags(holder: { getJsDocs(): JSDoc[] }): Tags {
                             order.default = tokens[1];
                         }
                         tags.queryOrderBy = order;
-                    }
-                    break;
-                }
-                case "queryWhere": {
-                    // The operators, as written; an empty list is a lint finding rather than an error here.
-                    if (tags.queryWhere === undefined) {
-                        tags.queryWhere = (value ?? "").split(/\s+/).filter((token) => token !== "");
                     }
                     break;
                 }
@@ -1654,7 +1712,7 @@ export function parseSpec(project: Project, options: ParseOptions = {}): SpecMod
                 const type: SpecType = typeNode ? readType(typeNode) : { kind: "missing" };
                 // The primary key is an optional filter every entity has; a bare tag on a key is lint's to report.
                 if (tags.primaryKey && tags.queryFilter === undefined) {
-                    tags.queryFilter = { required: false };
+                    tags.queryFilter = { ops: ["eq"] };
                 }
                 // An alias supplies the column default; a field tag overrides it, and a written empty one clears it.
                 if (!tags.written.byName.has("pgDefault") && tags.foreignKey === undefined) {

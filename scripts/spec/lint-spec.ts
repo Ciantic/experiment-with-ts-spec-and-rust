@@ -1,10 +1,10 @@
 /** Check the annotation tags on `spec/` interfaces. See docs/spec-annotations.md. */
 import {
-    COMPARE_OPERATORS,
     COMPUTED_KINDS,
     FIELD_TAGS,
     FOREIGN_KEY_OPTIONS,
     INTERFACE_TAGS,
+    QUERY_OPERATORS,
     WATCH_SCOPES,
     READ_OPERATIONS,
     REFERENTIAL_ACTIONS,
@@ -13,7 +13,6 @@ import {
     WIDGETS,
     WRITE_OPERATIONS,
     guardNameFor,
-    isCompareOperator,
     isForeignKeyOption,
     isGuardName,
     isNullOperator,
@@ -1094,7 +1093,7 @@ function lintForeignKey(tag: SpecTag, report: Report): void {
     }
 }
 
-/** `@queryFilter` makes a scalar column a filter; `required` forces it and `default=<value>` fills it in. */
+/** `@queryFilter` makes a scalar column a filter; `default=<value>` fills it in and `ops=` whitelists its operators. */
 function lintQueryFilter(tags: FieldTags, report: Report): void {
     const tag = tags.queryFilter;
     if (!tag) {
@@ -1103,7 +1102,21 @@ function lintQueryFilter(tags: FieldTags, report: Report): void {
     reportIfBranch(tags, tag, report);
     const parsed = parseQueryFilter(tag.value);
     for (const token of parsed.unknown) {
-        report(`@queryFilter takes no value, \`required\`, or \`default=<value>\`, found \`${token}\``, tag);
+        report(
+            `@queryFilter takes no value, \`default=<value>\`, or \`ops=<operator>,…\`, found \`${token}\``,
+            tag,
+        );
+    }
+    if (parsed.emptyOps) {
+        report(`@queryFilter ops= needs at least one operator, one of: ${QUERY_OPERATORS.join(", ")}`, tag);
+    }
+    for (const operator of parsed.unknownOps) {
+        report(`@queryFilter ops= \`${operator}\` is not one of: ${QUERY_OPERATORS.join(", ")}`, tag);
+    }
+    // A not-null column never matches `is null` and always matches `is not null`, so neither is a query.
+    const nullTest = parsed.ops.find((operator) => isNullOperator(operator));
+    if (nullTest !== undefined && !tags.optional) {
+        report(`@queryFilter ops=${nullTest} needs an optional field, whose column is nullable`, tag);
     }
     if (parsed.nullSpelling) {
         report("@queryFilter spells a null default `default=isNull`, not `default=null`", tag);
@@ -1115,13 +1128,9 @@ function lintQueryFilter(tags: FieldTags, report: Report): void {
     if ((parsed.default?.kind === "isNull" || parsed.default?.kind === "isNotNull") && !tags.optional) {
         report(`@queryFilter default=${parsed.default.kind} needs an optional field, whose column is nullable`, tag);
     }
-    // A required filter is always named, so its default would never apply.
-    if (parsed.required && parsed.default !== undefined) {
-        report("@queryFilter cannot be both `required` and defaulted", tag);
-    }
-    // The primary key is an optional filter already (spec-model defaults it), so only `required` adds anything.
-    if (tags.primaryKey && !parsed.required) {
-        report("the primary key is a filter by default; drop @queryFilter, or write `required`", tag);
+    // The primary key is a filter already (spec-model defaults it), so the tag adds nothing to it.
+    if (tags.primaryKey) {
+        report("the primary key is a filter by default; drop @queryFilter", tag);
     }
 }
 
@@ -1203,29 +1212,6 @@ function lintQueryOrderBy(tags: FieldTags, report: Report): void {
     reportIfBranch(tags, tag, report);
 }
 
-/** `@queryWhere` whitelists the comparison operators a field may be narrowed with. See docs/queries.md. */
-function lintWhere(tags: FieldTags, report: Report): void {
-    const tag = tags.queryWhere;
-    if (!tag) {
-        return;
-    }
-    const tokens = (tag.value ?? "").split(/\s+/).filter((token) => token !== "");
-    if (tokens.length === 0) {
-        report(`@queryWhere requires at least one operator, one of: ${COMPARE_OPERATORS.join(", ")}`, tag);
-    }
-    for (const token of tokens) {
-        if (!isCompareOperator(token)) {
-            report(`@queryWhere \`${token}\` is not one of: ${COMPARE_OPERATORS.join(", ")}`, tag);
-        }
-    }
-    // A not-null column never matches `is null` and always matches `is not null`, so neither is a query.
-    const nullTest = tokens.find((token) => isNullOperator(token));
-    if (nullTest !== undefined && !tags.optional) {
-        report(`@queryWhere \`${nullTest}\` needs an optional field, whose column is nullable`, tag);
-    }
-    reportIfBranch(tags, tag, report);
-}
-
 /** Check one field: its tag vocabulary, then each tag family's rules. */
 function lintProperty(
     property: SpecProperty,
@@ -1259,7 +1245,6 @@ function lintProperty(
     lintVersion(tags, report);
     lintForcedNotNull(tags, report);
     lintQueryOrderBy(tags, report);
-    lintWhere(tags, report);
 }
 
 /** Lint each field of an entity. */

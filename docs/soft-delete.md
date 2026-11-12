@@ -55,15 +55,14 @@ null", so a read of deleted rows uses the filter's null test:
 
 ```ts
 const deleted = await queryWidget(db, {
-    filter: { tenantId: [tenantId], deletedAt: { isNotNull: true } },
+    filters: [{ tenantId: { eq: tenantId } }, { deletedAt: { isNotNull: true } }],
     select: { code: true, deletedAt: true },
 });
 ```
 
-`{ isNull: true }` is the explicit spelling of the default, and a where clause
-such as `where: { deletedAt: { isNotNull: true } }` works too when the field
-whitelists `@queryWhere`; both null tests take `true` and bind no parameter. A
-`where` condition on a field overrides that field's filter default.
+`{ isNull: true }` is the explicit spelling of the default; both null tests take
+`true` and bind no parameter, and the column's `ops=` has to name them. A filter
+on a field overrides that field's default.
 
 ## Trash and restore are updates
 

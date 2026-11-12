@@ -22,7 +22,7 @@ export type QueryTranslationErrors =
     | HttpError;
 
 /**
- * Query `Translation` rows, filtered by the `@queryFilter` fields, combined with and.
+ * Query `Translation` rows over the filters it carries, combined with and.
  *
  * @throws {QueryError} when the query model refuses a field, filter, order, or page
  * @throws {ForbiddenError} when the session lacks the permission the guard requires
@@ -33,7 +33,7 @@ export type QueryTranslationErrors =
  */
 export function queryTranslation<S extends Selection<Translation>>(
     opts: {
-        filter?: Filters<Translation, "lang" | "key">;
+        filters?: Filters<Translation, { lang: "eq"; key: "eq" }>;
         limit?: number;
         offset?: number;
         select: S;

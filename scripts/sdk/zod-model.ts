@@ -4,13 +4,13 @@ import {
     specImportSpecifier,
     defaultedInsertProperties,
     inlinedFromInsert,
-    isCompareOperator,
     lowerFirst,
     nullablePatchProperties,
     omittedFromInsert,
     omittedFromPatch,
     primaryKeyProperties,
     type Diagnostic,
+    type QueryOperator,
     type SpecInterface,
     type SpecLocation,
     type SpecModel,
@@ -158,22 +158,18 @@ export interface ZodWatch {
 /** One comparable field: its name, its whitelisted operators, and the schema its values validate against. */
 export interface ZodWhereField {
     name: string;
-    operators: string[];
+    operators: QueryOperator[];
     expression: string;
 }
 
-/** The generated `query` schema for one entity: its `@queryFilter` sets plus `select`. */
+/** The generated `query` schema for one entity: its `@queryFilter` filters plus `select`. */
 export interface ZodQuery {
     /** The entity the read queries, which groups the generated file and supplies `select`. */
     entity: string;
     schemaName: string;
-    /** The filter fields: an optional set each, unless `@queryFilter required` made it mandatory. */
-    filterFields: ZodField[];
-    /** The filter fields a read must name, from `@queryFilter required`; the renderer requires them and the filter object. */
-    requiredFilterFields: string[];
     /** The orderable field names, from `@queryOrderBy`; the renderer validates `order` against them. */
     orderFields: string[];
-    /** The comparable fields, from `@queryWhere`; the renderer validates `where` against them. */
+    /** The filterable fields, with their `@queryFilter ops=`: the renderer validates each filter entry against them. */
     whereFields: ZodWhereField[];
     /** Entity names the filters reference, so the file imports their schemas. */
     dependencies: string[];
@@ -515,7 +511,7 @@ function buildEntities(
     return entities;
 }
 
-/** Build every entity's `query` read: its `@queryFilter` fields and its `@queryWhere` operators. */
+/** Build every entity's `query` read: its `@queryFilter` sets and the operators each one's `ops=` whitelists. */
 function buildQueries(
     interfaces: Map<string, SpecInterface>,
     resolver: Resolver,
@@ -523,46 +519,14 @@ function buildQueries(
     const queries: ZodQuery[] = [];
     for (const spec of interfaces.values()) {
         const context: ResolveContext = { ...resolver, dependencies: new Set(), usesPrimitives: false };
-        const filterFields: ZodField[] = [];
-        const requiredFilterFields: string[] = [];
-        for (const property of spec.properties) {
-            if (!property.tags.queryFilter) {
-                continue;
-            }
-            if (property.type.kind === "missing") {
-                resolver.report(property.location, `\`${property.name}\`: cannot resolve a type node`);
-                continue;
-            }
-            const resolved = resolveTypeNode(property.type, context);
-            if (resolved === undefined) {
-                resolver.report(
-                    property.location,
-                    `\`${property.name}\`: unsupported filter type \`${property.typeText}\``,
-                );
-                continue;
-            }
-            const setExpression = `z.array(${resolved})`;
-            // Only a nullable column has nulls to test, so only an optional field accepts a null test.
-            const expression = property.optional
-                ? `z.union([${setExpression}, z.strictObject({ isNull: z.literal(true) }), z.strictObject({ isNotNull: z.literal(true) })])`
-                : setExpression;
-            filterFields.push({
-                name: property.name,
-                // A required filter is always named; an optional one may be left out.
-                expression: property.tags.queryFilter.required ? expression : `${expression}.exactOptional()`,
-            });
-            if (property.tags.queryFilter.required) {
-                requiredFilterFields.push(property.name);
-            }
-        }
         context.dependencies.delete(spec.name);
         const orderFields = spec.properties
             .filter((property) => property.tags.queryOrderBy !== undefined)
             .map((property) => property.name);
         const whereFields: ZodWhereField[] = [];
         for (const property of spec.properties) {
-            const operators = property.tags.queryWhere?.filter(isCompareOperator);
-            if (!operators || operators.length === 0) {
+            const operators = property.tags.queryFilter?.ops;
+            if (operators === undefined || operators.length === 0) {
                 continue;
             }
             if (property.type.kind === "missing") {
@@ -582,8 +546,6 @@ function buildQueries(
         queries.push({
             entity: spec.name,
             schemaName: querySchemaName(spec.name),
-            filterFields,
-            requiredFilterFields,
             orderFields,
             whereFields,
             dependencies: [...context.dependencies].sort((a, b) => a.localeCompare(b)),
