@@ -2,7 +2,7 @@
 import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { INFRA_CRATE_ROOT } from "../paths.ts";
-import { rustModelItemPath, snakeName, variantIdentifier } from "../models-rs/generate-models.ts";
+import { rustModelItemPath, rustValueType, snakeName, variantIdentifier } from "../models-rs/generate-models.ts";
 import { loadSpec, type SpecModel } from "../spec/spec-model.ts";
 import { buildSpecTables, type Table } from "./postgres-model.ts";
 
@@ -93,11 +93,31 @@ export function selectableFields(table: Table): string[] {
     return table.columns.map((column) => column.name).filter((name) => !inlined.has(name));
 }
 
-/** The fields an entity exposes as filters, with the Postgres type each binds as. */
-export function filterFields(table: Table): { name: string; sqlType: string }[] {
+/** A filter field: its column, the Postgres type it binds as, and the Rust type of a value it compares. */
+export interface FilterFieldInfo {
+    name: string;
+    sqlType: string;
+    /** The model's Rust type for this column; `Value` when the spec shape has no Rust equivalent. */
+    valueType: string;
+    /** `use` statements for a value type declared in another model module. */
+    imports: string[];
+}
+
+/** The fields an entity exposes as filters, with the model type each value must have. */
+export function filterFields(table: Table, spec?: SpecModel): FilterFieldInfo[] {
+    const entity = spec?.interfaces.get(table.interfaceName);
     return table.columns
         .filter((column) => column.queryFilter !== undefined)
-        .map((column) => ({ name: column.name, sqlType: sqlTypeVariant(column.sqlType) }));
+        .map((column) => {
+            const property = entity?.properties.find((candidate) => candidate.name === column.name);
+            const resolved = property === undefined || spec === undefined ? undefined : rustValueType(spec, property);
+            return {
+                name: column.name,
+                sqlType: sqlTypeVariant(column.sqlType),
+                valueType: resolved?.type ?? "Value",
+                imports: resolved?.imports ?? [],
+            };
+        });
 }
 
 /** The field names an entity exposes as ordering keys: its `@queryOrderBy` scalar columns. */
@@ -205,96 +225,26 @@ function selectHelper(): string[] {
     ];
 }
 
-/** The filter helpers of a filterable field, each yielding the entity's own filter type. */
-function filterHelpers(entity: string): string[] {
-    const filter = `${entity}Filter`;
-    return [
-        "/// A condition on this column, with `value` bound as one parameter.",
-        "///",
-        "/// # Errors",
-        "///",
-        "/// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        ...conditionSignature(filter),
-        `    ${filter}::bind(self, operator, value)`,
-        "}",
-        "",
-        "/// `column = value`.",
-        "///",
-        "/// # Errors",
-        "///",
-        "/// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        `pub fn eq(self, value: impl BindValue) -> Result<${filter}, ReadError> {`,
-        "    self.condition(FilterOperator::Eq, value)",
-        "}",
-        "",
-        "/// `column <> value`.",
-        "///",
-        "/// # Errors",
-        "///",
-        "/// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        `pub fn ne(self, value: impl BindValue) -> Result<${filter}, ReadError> {`,
-        "    self.condition(FilterOperator::Neq, value)",
-        "}",
-        "",
-        "/// `column = any(values)`, bound as one array parameter.",
-        "///",
-        "/// # Errors",
-        "///",
-        "/// Returns [`ReadError::Encode`] when a value has no JSON form.",
-        ...signature(
-            "any",
-            ["self", "values: impl IntoIterator<Item = impl BindValue>"],
-            `Result<${filter}, ReadError>`,
-        ),
-        `    ${filter}::bind_any(self, values)`,
-        "}",
-        "",
-        "/// `column = any(value)`, with `value` an array such as a model's `Vec<Id>`.",
-        "///",
-        "/// # Errors",
-        "///",
-        "/// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        `pub fn any_of(self, values: impl BindValue) -> Result<${filter}, ReadError> {`,
-        "    self.condition(FilterOperator::Any, values)",
-        "}",
-        "",
-        "/// `column is null`, which binds no parameter.",
-        "#[must_use]",
-        `pub fn is_null(self) -> ${filter} {`,
-        `    ${filter}::condition(self, FilterOperator::IsNull, None)`,
-        "}",
-        "",
-        "/// `column is not null`, which binds no parameter.",
-        "#[must_use]",
-        `pub fn is_not_null(self) -> ${filter} {`,
-        `    ${filter}::condition(self, FilterOperator::IsNotNull, None)`,
-        "}",
-    ];
-}
-
-/** A function signature as rustfmt writes it, one line when it fits and one parameter per line when it does not. */
-function signature(name: string, params: string[], returns: string): string[] {
-    const oneLine = `pub fn ${name}(${params.join(", ")}) -> ${returns} {`;
+/** A function signature as rustfmt writes it: one line when it fits, one parameter per line otherwise. */
+function signature(name: string, params: string[], returns: string, indent = 0, visibility = "pub "): string[] {
+    const prefix = " ".repeat(indent);
+    const oneLine = `${prefix}${visibility}fn ${name}(${params.join(", ")}) -> ${returns} {`;
     if (oneLine.length <= MAX_LINE_WIDTH) {
         return [oneLine];
     }
-    const lines = [`pub fn ${name}(`];
+    const lines = [`${prefix}${visibility}fn ${name}(`];
     for (const param of params) {
-        lines.push(`    ${param},`);
+        lines.push(`${prefix}    ${param},`);
     }
-    lines.push(`) -> ${returns} {`);
+    lines.push(`${prefix}) -> ${returns} {`);
     return lines;
-}
-
-/** A field's `condition` signature, over a bind value. */
-function conditionSignature(filter: string): string[] {
-    return signature("condition", ["self", "operator: FilterOperator", "value: impl BindValue"], `Result<${filter}, ReadError>`);
 }
 
 /** Render the entity's typed filter tree, so a read cannot filter on another table's column. */
 function renderFilterStruct(entity: string): string[] {
     const filter = `${entity}Filter`;
     const field = `${entity}FilterField`;
+    const bind = signature("bind", [`field: ${field}`, "operator: FilterOperator", "value: impl BindValue"], "Result<Self, ReadError>", 4, "");
     return [
         `/// A filter over \`${entity}\`: one comparison on a \`${field}\`, or a group of them.`,
         `/// The read's filters are combined with \`and\`.`,
@@ -313,13 +263,8 @@ function renderFilterStruct(entity: string): string[] {
         "}",
         "",
         `impl ${filter} {`,
-        "    /// One comparison on one column.",
-        "    #[must_use]",
-        "    pub fn condition(",
-        `        field: ${field},`,
-        "        operator: FilterOperator,",
-        "        value: Option<Value>,",
-        "    ) -> Self {",
+        "    /// One comparison on one column; a typed builder is the way a caller reaches this.",
+        ...signature("condition", [`field: ${field}`, "operator: FilterOperator", "value: Option<Value>"], "Self", 4, ""),
         "        Self::Condition {",
         "            field,",
         "            operator,",
@@ -332,34 +277,11 @@ function renderFilterStruct(entity: string): string[] {
         "    /// # Errors",
         "    ///",
         "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        ...signature("bind", [`field: ${field}`, "operator: FilterOperator", "value: impl BindValue"], "Result<Self, ReadError>").map(
-            (line) => `    ${line}`,
-        ),
+        ...bind,
         "        Ok(Self::condition(",
         "            field,",
         "            operator,",
         "            Some(value.to_bind_value()?),",
-        "        ))",
-        "    }",
-        "",
-        "    /// `field = any(values)`, bound as one array parameter.",
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when a value has no JSON form.",
-        ...signature(
-            "bind_any",
-            [`field: ${field}`, "values: impl IntoIterator<Item = impl BindValue>"],
-            "Result<Self, ReadError>",
-        ).map((line) => `    ${line}`),
-        "        let mut bound = Vec::new();",
-        "        for value in values {",
-        "            bound.push(value.to_bind_value()?);",
-        "        }",
-        "        Ok(Self::condition(",
-        "            field,",
-        "            FilterOperator::Any,",
-        "            Some(Value::Array(bound)),",
         "        ))",
         "    }",
         "",
@@ -396,6 +318,128 @@ function renderFilterStruct(entity: string): string[] {
         "    }",
         "}",
     ];
+}
+
+/** The constant a filter field's builder is reached through, e.g. `tenantId` -> `TENANT_ID`. */
+export function filterConstantName(field: string): string {
+    return snakeName(field).toUpperCase();
+}
+
+/** The builder type of one filter field, e.g. `Invoice` + `tenantId` -> `InvoiceTenantIdFilter`. */
+export function filterBuilderName(entity: string, field: string): string {
+    return `${entity}${variantIdentifier(field)}Filter`;
+}
+
+/** The methods a field's filter builder carries, each taking the column's own value type. */
+function filterBuilderMethods(entity: string, field: FilterFieldInfo): string[] {
+    const filter = `${entity}Filter`;
+    const value = field.valueType;
+    const method = (name: string, params: string[], returns: string): string[] => signature(name, params, returns, 4);
+
+    return [
+        "    /// The column this filter targets.",
+        "    #[must_use]",
+        `    pub const fn field(self) -> ${entity}FilterField {`,
+        "        self.0",
+        "    }",
+        "",
+        `    /// \`${field.name} = value\`.`,
+        "    ///",
+        "    /// # Errors",
+        "    ///",
+        "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
+        ...method("eq", ["self", `value: impl Borrow<${value}>`], `Result<${filter}, ReadError>`),
+        `        ${filter}::bind(self.0, FilterOperator::Eq, value.borrow())`,
+        "    }",
+        "",
+        `    /// \`${field.name} <> value\`.`,
+        "    ///",
+        "    /// # Errors",
+        "    ///",
+        "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
+        ...method("ne", ["self", `value: impl Borrow<${value}>`], `Result<${filter}, ReadError>`),
+        `        ${filter}::bind(self.0, FilterOperator::Neq, value.borrow())`,
+        "    }",
+        "",
+        `    /// \`${field.name} = any(values)\`, bound as one array parameter.`,
+        "    ///",
+        "    /// # Errors",
+        "    ///",
+        "    /// Returns [`ReadError::Encode`] when a value has no JSON form.",
+        ...method(
+            "any",
+            ["self", `values: impl IntoIterator<Item = impl Borrow<${value}>>`],
+            `Result<${filter}, ReadError>`,
+        ),
+        "        let mut bound = Vec::new();",
+        "        for value in values {",
+        "            bound.push(value.borrow().to_bind_value()?);",
+        "        }",
+        `        Ok(${filter}::condition(`,
+        "            self.0,",
+        "            FilterOperator::Any,",
+        "            Some(Value::Array(bound)),",
+        "        ))",
+        "    }",
+        "",
+        `    /// \`${field.name} is null\`.`,
+        "    #[must_use]",
+        ...method("is_null", ["self"], filter),
+        `        ${filter}::condition(self.0, FilterOperator::IsNull, None)`,
+        "    }",
+        "",
+        `    /// \`${field.name} is not null\`.`,
+        "    #[must_use]",
+        ...method("is_not_null", ["self"], filter),
+        `        ${filter}::condition(self.0, FilterOperator::IsNotNull, None)`,
+        "    }",
+    ];
+}
+
+/** Render one field's typed filter builder. */
+function renderFilterBuilder(entity: string, field: FilterFieldInfo): string[] {
+    const name = filterBuilderName(entity, field.name);
+    return [
+        `/// The \`${field.name}\` filter of \`${entity}\`.`,
+        "#[derive(Clone, Copy, Debug, Eq, PartialEq)]",
+        `pub struct ${name}(${entity}FilterField);`,
+        "",
+        `impl ${name} {`,
+        ...filterBuilderMethods(entity, field),
+        "}",
+    ];
+}
+
+/** Render the typed filter builders of every filterable field, plus the constant each is reached through. */
+export function renderFilterBuilders(entity: string, fields: FilterFieldInfo[]): string[] {
+    const enumName = `${entity}FilterField`;
+    const lines: string[] = [];
+
+    if (fields.length > 0) {
+        lines.push(`impl ${enumName} {`);
+        for (const field of fields) {
+            const builder = filterBuilderName(entity, field.name);
+            const constant = filterConstantName(field.name);
+            const oneLine = `    pub const ${constant}: ${builder} = ${builder}(Self::${fieldVariant(field.name)});`;
+            lines.push(`    /// The \`${field.name}\` typed filter builder.`);
+            if (oneLine.length <= MAX_LINE_WIDTH) {
+                lines.push(oneLine);
+            } else {
+                lines.push(`    pub const ${constant}: ${builder} =`);
+                lines.push(`        ${builder}(Self::${fieldVariant(field.name)});`);
+            }
+        }
+        lines.push("}");
+        lines.push("");
+    }
+
+    fields.forEach((field, index) => {
+        if (index > 0) {
+            lines.push("");
+        }
+        lines.push(...renderFilterBuilder(entity, field));
+    });
+    return lines;
 }
 
 /** The ordering helpers of an orderable field. */
@@ -531,9 +575,9 @@ function renderReadOptions(entity: string): string[] {
         "        self",
         "    }",
         "",
-        "    /// The source-independent read this describes.",
+        "    /// The source-independent read the crate's planner takes; not part of the public surface.",
         "    #[must_use]",
-        "    pub fn into_read_options(self) -> ReadOptions {",
+        "    pub(crate) fn into_read_options(self) -> ReadOptions {",
         "        ReadOptions {",
         "            columns: self",
         "                .select",
@@ -559,18 +603,24 @@ function renderReadOptions(entity: string): string[] {
 }
 
 /** Render one entity's query: its typed fields, its typed read options, and the read itself. */
-export function renderQueryModule(table: Table): string {
+export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const entity = table.interfaceName;
     const query = queryFunctionName(entity);
     const options = `${entity}ReadOptions`;
     const lines: string[] = [HEADER, ""];
+    lines.push("use std::borrow::Borrow;");
+    lines.push("");
     lines.push("use crate::db::{");
     lines.push("    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,");
     lines.push("};");
     lines.push("use datagrid_query::{");
     lines.push("    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,");
     lines.push("};");
-    lines.push(`use ${selectTypePath(table)};`);
+    const filters = filterFields(table, spec);
+    const modelImports = new Set([`use ${selectTypePath(table)};`, ...filters.flatMap((field) => field.imports)]);
+    for (const importLine of [...modelImports].sort()) {
+        lines.push(importLine);
+    }
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may select.`);
     lines.push(fieldEnumDerive());
@@ -579,7 +629,9 @@ export function renderQueryModule(table: Table): string {
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may filter on, from \`@queryFilter\`.`);
     lines.push(fieldEnumDerive());
-    lines.push(...renderFieldEnum(entity, "Filter", filterFields(table), filterHelpers(entity)));
+    lines.push(...renderFieldEnum(entity, "Filter", filters, []));
+    lines.push("");
+    lines.push(...renderFilterBuilders(entity, filters));
     lines.push("");
     lines.push(...renderFilterStruct(entity));
     lines.push("");
@@ -626,7 +678,7 @@ export function renderQueryModule(table: Table): string {
 }
 
 /** Render every generated file, keyed by file name (including the barrel). */
-export function generateQueryModules(tables: Map<string, Table>): Map<string, string> {
+export function generateQueryModules(tables: Map<string, Table>, spec?: SpecModel): Map<string, string> {
     const entities = [...tables.values()]
         .filter((table) => table.queries.includes("query"))
         .sort((a, b) => a.interfaceName.localeCompare(b.interfaceName));
@@ -635,7 +687,7 @@ export function generateQueryModules(tables: Map<string, Table>): Map<string, st
     const lines: string[] = [HEADER, ""];
     for (const table of entities) {
         const module = queryFunctionName(table.interfaceName);
-        files.set(`${module}.rs`, renderQueryModule(table));
+        files.set(`${module}.rs`, renderQueryModule(table, spec));
         lines.push(`mod ${module};`);
     }
     if (entities.length > 0) {
@@ -679,7 +731,7 @@ export function run(spec: SpecModel, argv: readonly string[] = process.argv, out
         return 1;
     }
 
-    const files = generateQueryModules(tables);
+    const files = generateQueryModules(tables, spec);
     mkdirSync(outDir, { recursive: true });
     for (const [name, content] of files) {
         writeFileSync(join(outDir, name), content);

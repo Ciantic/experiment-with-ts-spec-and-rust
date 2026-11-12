@@ -1,5 +1,7 @@
 /** Unit tests for the Rust query generator, driven by self-contained fixtures. See docs/testing.md. */
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { SPEC_SRC_ROOT, parseInMemorySpec } from "../spec/spec-model.ts";
 import type { Column, Table } from "./postgres-model.ts";
 import {
     fieldEnumName,
@@ -11,6 +13,47 @@ import {
     selectableFields,
     sqlTypeVariant,
 } from "./generate-queries-rs.ts";
+
+/** The glob that matches an in-memory fixture, placed so its import specifier looks like a real one. */
+const SPEC_GLOB = join(SPEC_SRC_ROOT, "**/*.ts");
+
+/** The types the fixture's columns carry, so a filter can be checked against the model's own type. */
+const spec = parseInMemorySpec(
+    [
+        {
+            filePath: join(SPEC_SRC_ROOT, "fixtures.ts"),
+            sourceFileText: `
+export type InvoiceId = string;
+export type TenantId = string;
+
+/**
+ * @entity
+ * @pgTable invoice
+ * @queries query
+ */
+export interface Invoice {
+    /** @primaryKey */
+    id: InvoiceId;
+    tenantId: TenantId;
+    number?: string;
+    updatedAt: Date;
+    customerName: string;
+}
+
+/**
+ * @entity
+ * @pgTable audit_log
+ * @queries query
+ */
+export interface AuditLog {
+    /** @primaryKey */
+    id: string;
+}
+`,
+        },
+    ],
+    { sourceGlob: SPEC_GLOB },
+);
 
 function column(name: string, extras: Partial<Column> = {}): Column {
     return { name, sqlType: "text", notNull: true, primaryKey: false, unique: false, insertable: true, updatable: true, ...extras };
@@ -85,7 +128,7 @@ describe("fieldEnumName", () => {
 
 describe("renderQueryModule", () => {
     it("takes the entity's own read options, not the generic ones", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub struct InvoiceReadOptions {");
         expect(code).toContain("pub select: Vec<InvoiceSelectField>,");
@@ -97,9 +140,9 @@ describe("renderQueryModule", () => {
     });
 
     it("converts the typed selection and ordering to the builder's own types", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub fn into_read_options(self) -> ReadOptions {");
+        expect(code).toContain("pub(crate) fn into_read_options(self) -> ReadOptions {");
         expect(code).toContain(".map(|field| field.select())");
         expect(code).toContain(".map(|filter| filter.into_typed_filter())");
         expect(code).toContain(".map(|order| order.into_sort())");
@@ -107,7 +150,7 @@ describe("renderQueryModule", () => {
     });
 
     it("builds the selection, filters, and ordering with a small fluent API", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn with_select(fields: impl IntoIterator<Item = InvoiceSelectField>) -> Self");
         expect(code).toContain("pub fn filter(mut self, filter: InvoiceFilter) -> Self");
@@ -115,7 +158,7 @@ describe("renderQueryModule", () => {
     });
 
     it("names each filter's column type, so a driver can bind it", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub const fn sql_type(self) -> SqlType {");
         expect(code).toContain("Self::TenantId => SqlType::Uuid,");
@@ -124,24 +167,43 @@ describe("renderQueryModule", () => {
         );
     });
 
-    it("accepts a model value, so no caller converts one by hand", () => {
-        const code = renderQueryModule(invoice);
+    it("takes each field's own model type, so a mismatched value cannot compile", () => {
+        const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub fn eq(self, value: impl BindValue) -> Result<InvoiceFilter, ReadError> {");
-        expect(code).toContain("values: impl IntoIterator<Item = impl BindValue>,");
-        expect(code).toContain("pub fn any_of(self, values: impl BindValue)");
-        expect(code).toContain("value.to_bind_value()?");
+        expect(code).toContain("pub const ID: InvoiceIdFilter = InvoiceIdFilter(Self::Id);");
+        expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter(Self::TenantId);");
+        expect(code).toContain("pub fn eq(self, value: impl Borrow<InvoiceId>) -> Result<InvoiceFilter, ReadError> {");
+        expect(code).toContain("pub fn eq(self, value: impl Borrow<TenantId>) -> Result<InvoiceFilter, ReadError> {");
+        expect(code).toContain("values: impl IntoIterator<Item = impl Borrow<TenantId>>,");
+        expect(code).toContain("use models::domain::fixtures::TenantId;");
+    });
+
+    it("accepts a value or a borrow of it", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("use std::borrow::Borrow;");
+        expect(code).toContain("value.borrow()");
+        expect(code).toContain("value.borrow().to_bind_value()?");
+    });
+
+    it("leaves no route from a raw datagrid value to a filter", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        // The constructor and the lowering method are the module's own, not a caller's.
+        expect(code).toContain("    fn condition(");
+        expect(code).not.toContain("    pub fn condition(");
+        expect(code).toContain("pub(crate) fn into_read_options(self) -> ReadOptions {");
     });
 
     it("keeps a null test infallible, since it binds no value", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn is_null(self) -> InvoiceFilter {");
-        expect(code).toContain("InvoiceFilter::condition(self, FilterOperator::IsNull, None)");
+        expect(code).toContain("InvoiceFilter::condition(self.0, FilterOperator::IsNull, None)");
     });
 
     it("keeps a raw column name out of the caller's filters", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub enum InvoiceFilter {");
         expect(code).toContain("        field: InvoiceFilterField,");
@@ -150,7 +212,7 @@ describe("renderQueryModule", () => {
     });
 
     it("groups filters with and / or, each child keeping its column type", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn and(filters: impl IntoIterator<Item = Self>) -> Self");
         expect(code).toContain("pub fn or(filters: impl IntoIterator<Item = Self>) -> Self");
@@ -159,7 +221,7 @@ describe("renderQueryModule", () => {
     });
 
     it("decodes into the entity's selected shape", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub async fn query_invoice(");
         expect(code).toContain(") -> Result<Vec<InvoiceSelect>, ReadError> {");
@@ -167,7 +229,7 @@ describe("renderQueryModule", () => {
     });
 
     it("emits an enum per field set with the columns it names", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub enum InvoiceSelectField {");
         expect(code).toContain("pub enum InvoiceFilterField {");
@@ -176,17 +238,16 @@ describe("renderQueryModule", () => {
     });
 
     it("builds filters, selects, and sorts from the typed fields", () => {
-        const code = renderQueryModule(invoice);
+        const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn select(self) -> SelectColumn");
-        expect(code).toContain("pub fn condition(\n        self,\n        operator: FilterOperator,\n        value: impl BindValue,");
-        expect(code).toContain(") -> Result<InvoiceFilter, ReadError> {");
+        expect(code).toContain("pub const fn field(self) -> InvoiceFilterField {");
         expect(code).toContain("pub fn asc(self) -> InvoiceOrder {");
         expect(code).toContain("pub struct InvoiceOrder {");
     });
 
     it("writes an empty field set when the entity declares none", () => {
-        const code = renderQueryModule(bare);
+        const code = renderQueryModule(bare, spec);
 
         expect(code).toContain("pub enum AuditLogFilterField {}");
         expect(code).toContain("pub enum AuditLogOrderField {}");
@@ -195,7 +256,7 @@ describe("renderQueryModule", () => {
 
     it("wraps a long with_select signature instead of overflowing the line", () => {
         const long = table("tenant_shared_permission", "TenantSharedPermission", [column("id", { primaryKey: true })]);
-        const code = renderQueryModule(long);
+        const code = renderQueryModule(long, spec);
 
         expect(code).toContain("pub fn with_select(\n        fields: impl IntoIterator<Item = TenantSharedPermissionSelectField>,\n    ) -> Self {");
     });
@@ -207,7 +268,7 @@ describe("generateQueryModules", () => {
         const files = generateQueryModules(new Map([
             ["Invoice", invoice],
             ["Seller", seller],
-        ]));
+        ]), spec);
 
         expect([...files.keys()].sort()).toEqual(["mod.rs", "query_invoice.rs", "query_seller.rs"]);
     });
@@ -217,14 +278,14 @@ describe("generateQueryModules", () => {
         const files = generateQueryModules(new Map([
             ["Invoice", invoice],
             ["Seller", seller],
-        ]));
+        ]), spec);
 
         expect([...files.keys()].sort()).toEqual(["mod.rs", "query_invoice.rs"]);
         expect(files.get("mod.rs")).not.toContain("query_seller");
     });
 
     it("re-exports every module from the barrel", () => {
-        const code = generateQueryModules(new Map([["Invoice", invoice]])).get("mod.rs") ?? "";
+        const code = generateQueryModules(new Map([["Invoice", invoice]]), spec).get("mod.rs") ?? "";
 
         expect(code).toContain("mod query_invoice;");
         expect(code).toContain("pub use query_invoice::*;");

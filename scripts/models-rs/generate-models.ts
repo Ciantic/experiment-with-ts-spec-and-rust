@@ -146,6 +146,8 @@ interface RenderContext {
     currentFilePath: string;
     imports: Set<string>;
     diagnostics: Diagnostic[];
+    /** The crate an import starts at; `models` when another crate reads the type. */
+    crateRoot: string;
     /** Set when an item uses the crate's field-presence type, so the module imports it once. */
     usesPartial: boolean;
 }
@@ -243,8 +245,8 @@ export function rustModelItemPath(importSpecifier: string, item: string, crateRo
     return [crateRoot, rustModulePath(importSpecifier.replace(/^spec\//u, "")), item].join("::");
 }
 
-function itemPath(filePath: string, item: string): string {
-    return ["crate", rustModulePath(relativePath(SPEC_SRC_ROOT, filePath)), item].join("::");
+function itemPath(filePath: string, item: string, crateRoot: string): string {
+    return [crateRoot, rustModulePath(relativePath(SPEC_SRC_ROOT, filePath)), item].join("::");
 }
 
 /** The output path of a spec source file, keeping its spec directories and using a Rust file name. */
@@ -262,7 +264,7 @@ function addImport(context: RenderContext, filePath: string, item: string): void
     if (filePath === context.currentFilePath) {
         return;
     }
-    context.imports.add(`use ${itemPath(filePath, item)};`);
+    context.imports.add(`use ${itemPath(filePath, item, context.crateRoot)};`);
 }
 
 /** Map one spec type to a Rust type, or undefined when the shape has no Rust equivalent. */
@@ -332,6 +334,32 @@ function renderAliasBase(alias: SpecTypeAlias, context: RenderContext): string |
         }
     }
     return renderType(alias.type, context);
+}
+
+/** A Rust type another crate can name, plus the imports it needs. */
+export interface RustValueType {
+    /** The type of the property's stored value, without `Option`. */
+    type: string;
+    /** `use` statements for the types declared in another generated module. */
+    imports: string[];
+}
+
+/** The Rust type of a property's stored value, as the models crate declares it. */
+export function rustValueType(spec: SpecModel, property: SpecProperty): RustValueType | undefined {
+    const context: RenderContext = {
+        spec,
+        generatedAliases: new Set(generatedAliases(spec).keys()),
+        currentFilePath: "",
+        imports: new Set(),
+        diagnostics: [],
+        crateRoot: "models",
+        usesPartial: false,
+    };
+    const type = renderType(property.type, context);
+    if (type === undefined) {
+        return undefined;
+    }
+    return { type, imports: [...context.imports].sort((a, b) => a.localeCompare(b)) };
 }
 
 /** The derives a newtype takes: a float or JSON base cannot be ordered or hashed. */
@@ -820,6 +848,7 @@ export function buildRustModels(spec: SpecModel): { files: GeneratedFiles; diagn
             currentFilePath: filePath,
             imports: new Set(),
             diagnostics,
+            crateRoot: "crate",
             usesPartial: false,
         };
         const blocks: string[][] = [];

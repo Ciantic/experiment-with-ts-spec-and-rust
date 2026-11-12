@@ -8,7 +8,9 @@ mod sql_type;
 
 pub mod queries;
 
-pub use bind_value::{BindValue, to_value};
 pub use executor::{ReadError, Row, SqlExecutor, decode_rows};
-pub use read_options::{Param, PlannedQuery, ReadOptions, TypedFilter};
+pub use read_options::{Param, PlannedQuery};
 pub use sql_type::SqlType;
+
+pub(crate) use bind_value::BindValue;
+pub(crate) use read_options::{ReadOptions, TypedFilter};

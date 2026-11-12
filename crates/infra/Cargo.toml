@@ -4,6 +4,7 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
+chrono = { version = "0.4", features = ["serde"] }
 datagrid_query = { path = "../../../datagrid-query-builder/datagrid-query-rs" }
 models = { path = "../models" }
 serde = "1"

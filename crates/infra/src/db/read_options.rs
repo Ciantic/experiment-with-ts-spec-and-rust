@@ -47,7 +47,7 @@ pub enum TypedFilter {
 impl TypedFilter {
     /// A condition on a typed column, with `value` bound as one parameter.
     #[must_use]
-    pub fn condition(
+    pub(crate) fn condition(
         column: &str,
         sql_type: SqlType,
         operator: FilterOperator,
@@ -65,7 +65,7 @@ impl TypedFilter {
 
     /// A nested `and` / `or` group.
     #[must_use]
-    pub fn group(combinator: Combinator, filters: Vec<Self>) -> Self {
+    pub(crate) fn group(combinator: Combinator, filters: Vec<Self>) -> Self {
         Self::Group {
             combinator,
             filters,
@@ -74,7 +74,7 @@ impl TypedFilter {
 
     /// The builder's filter for this condition or group.
     #[must_use]
-    pub fn into_filter(self) -> Filter {
+    pub(crate) fn into_filter(self) -> Filter {
         match self {
             Self::Condition { condition, .. } => Filter::Condition(condition),
             Self::Group {
@@ -89,7 +89,7 @@ impl TypedFilter {
 
     /// The types of the parameters this filter binds, in the order the builder numbers them.
     #[must_use]
-    pub fn param_types(&self) -> Vec<SqlType> {
+    pub(crate) fn param_types(&self) -> Vec<SqlType> {
         let mut types = Vec::new();
         self.collect_param_types(&mut types);
         types
@@ -142,8 +142,11 @@ fn is_absent(value: &Option<Value>) -> bool {
 }
 
 /// A read's arguments without its source: what to select, filter, order, and page.
+///
+/// This is the crate's lowering target: a generated read converts its own options into it and
+/// plans the statement, so no caller names this type or hands it a column name.
 #[derive(Clone, Debug, Default)]
-pub struct ReadOptions {
+pub(crate) struct ReadOptions {
     /// The selected columns; empty selects every column.
     pub columns: Vec<SelectColumn>,
     /// The typed filter tree applied to the read.
@@ -159,7 +162,7 @@ pub struct ReadOptions {
 impl ReadOptions {
     /// The datagrid options for a table, optionally in `schema`.
     #[must_use]
-    pub fn into_query(self, table: &str, schema: Option<&str>) -> QueryOptions {
+    fn into_query(self, table: &str, schema: Option<&str>) -> QueryOptions {
         QueryOptions {
             source: QuerySource::Table {
                 name: table.to_owned(),
@@ -183,7 +186,11 @@ impl ReadOptions {
     ///
     /// Returns [`ReadError::Build`] when the options do not form a valid statement, and
     /// [`ReadError::Plan`] when the built parameters and the filters' types disagree.
-    pub fn plan(self, table: &str, schema: Option<&str>) -> Result<PlannedQuery, super::ReadError> {
+    pub(crate) fn plan(
+        self,
+        table: &str,
+        schema: Option<&str>,
+    ) -> Result<PlannedQuery, super::ReadError> {
         let types: Vec<SqlType> = self
             .filters
             .iter()

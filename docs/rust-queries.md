@@ -36,7 +36,7 @@ Each module names the entity's columns once, as one enum per capability:
 | Type | Built from | Fields |
 | --- | --- | --- |
 | `WidgetSelectField` | every column | selectable |
-| `WidgetFilterField` | `@queryFilter` | filterable, with `WidgetFilter` as the filter it builds |
+| `WidgetFilterField` | `@queryFilter` | filterable, with one typed builder per column |
 | `WidgetOrderField` | `@queryOrderBy` | orderable, with `WidgetOrder` as the clause it builds |
 
 A column an `@inlined` branch reaches through that branch is not selectable by
@@ -49,47 +49,66 @@ capability needs:
 
 ```rust
 WidgetSelectField::Notes.select();                          // SelectColumn::Name("notes")
-WidgetFilterField::TenantId.eq(&tenant_id)?;                // "tenantId" = $1, a TenantId directly
-WidgetFilterField::Id.any([first_id, second_id])?;          // "id" = ANY($1), one array parameter
-WidgetFilterField::DeletedAt.is_null();                     // "deletedAt" is null
+WidgetFilterField::TENANT_ID.eq(&tenant_id)?;               // "tenantId" = $1, a TenantId
+WidgetFilterField::ID.any([first_id, second_id])?;          // "id" = ANY($1), one array parameter
+WidgetFilterField::DELETED_AT.is_null();                    // "deletedAt" is null
 WidgetOrderField::CreatedAt.desc();                         // "createdAt" DESC
 ```
 
-`condition(operator, value)` is the general form the others wrap. Every filter
-helper returns the entity's own filter type, `WidgetFilter`, so a filter always
-carries the column it targets; `sql_type()` maps that field to the type the
-driver binds. `WidgetFilter::and(…)` and `WidgetFilter::or(…)` nest filters,
-and each child keeps its own column type.
+A filter field is reached through a constant named for its column, and that
+constant returns a builder of the column's own value type. `sql_type()` maps
+the enum variant to the type the driver binds. `WidgetFilter::and(…)` and
+`WidgetFilter::or(…)` nest filters, and each child keeps its own column type.
 
 ```rust
 WidgetFilter::or([
-    WidgetFilterField::Number.is_null(),
-    WidgetFilterField::SupplierId.is_not_null(),
+    WidgetFilterField::NUMBER.is_null(),
+    WidgetFilterField::SUPPLIER_ID.is_not_null(),
 ])
 ```
 
 ## Values
 
-A filter takes the model's own type, not a converted value. `eq`, `ne`,
-`condition`, `any`, and `any_of` accept anything that has a JSON form
-(`BindValue`), which covers every generated newtype — `TenantId`, `Money`,
-`Version`, a `CustomerId` — as well as the scalars a column holds:
+Each filter builder takes that column's model type, so a value of the wrong
+type is a compile error rather than a query that fails at run time:
 
 ```rust
-WidgetFilterField::TenantId.eq(&tenant_id)?;                 // a borrow of a branded id
-WidgetFilterField::Amount.eq(Money(decimal))?;               // a primitive newtype
-WidgetFilterField::Id.any([first, second])?;                 // an iterator of ids
-WidgetFilterField::Id.any_of(model.ids)?;                    // a Vec<Id> as one parameter
-WidgetFilterField::Notes.eq("draft")?;                       // a plain scalar
+pub struct WidgetTenantIdFilter(WidgetFilterField);
+
+impl WidgetTenantIdFilter {
+    pub fn eq(self, value: impl Borrow<TenantId>) -> Result<WidgetFilter, ReadError>;
+    pub fn ne(self, value: impl Borrow<TenantId>) -> Result<WidgetFilter, ReadError>;
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> Result<WidgetFilter, ReadError>;
+    pub fn is_null(self) -> WidgetFilter;
+    pub fn is_not_null(self) -> WidgetFilter;
+}
 ```
 
-A newtype serializes as the value it wraps, so `TenantId(String)` binds its
-string and `Version(i64)` binds its integer. The conversion can only fail when a
-value has no JSON form, which is why the value-carrying helpers return
-`Result<WidgetFilter, ReadError>`; the null tests bind nothing and return a
-`WidgetFilter` directly. `Condition` also keeps a raw constructor,
-`WidgetFilter::condition(field, operator, Some(value))`, for a value that is
-already a `datagrid_query::Value`.
+`Borrow<T>` accepts the value and a reference to it, so a caller keeps its own
+copy without cloning:
+
+```rust
+WidgetFilterField::TENANT_ID.eq(&tenant_id)?;                // a borrow of a branded id
+WidgetFilterField::AMOUNT.eq(amount)?;                       // a Money
+WidgetFilterField::ID.any([first_id, second_id])?;           // ids, bound as one array
+WidgetFilterField::NOTES.eq("draft")?;                       // a plain string column
+```
+
+The value type comes from the same mapping that writes the models crate
+(`docs/rust-models.md`), so a branded id arrives as its own newtype, a `Date`
+column as `chrono::DateTime<Utc>`, and a `string` column as `String`. Passing a
+`CustomerId` to a `TenantId` filter does not compile.
+
+A value becomes a bind value through the crate's `BindValue`, which any
+`Serialize` type satisfies, so a newtype binds the value it wraps. The
+conversion can only fail when a value has no JSON form, which is why the
+value-carrying methods return `Result<WidgetFilter, ReadError>`; the null tests
+bind nothing and return a `WidgetFilter` directly.
+
+The raw `datagrid_query::Value` never reaches a caller. The filter enum's
+`condition` constructor and the `ReadOptions` lowering are crate-internal, and
+`BindValue` is a crate-internal trait, so the typed builders are the only way
+in: a filter's value is always the column's model type.
 
 The field enums are the validity check: a column the spec does not expose
 cannot be named, so a caller never builds a filter or an ordering the entity
@@ -103,7 +122,7 @@ entity's own typed sets:
 ```rust
 pub struct WidgetReadOptions {
     pub select: Vec<WidgetSelectField>,
-    pub filters: Vec<TypedFilter>,
+    pub filters: Vec<WidgetFilter>,
     pub order: Vec<WidgetOrder>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
@@ -120,13 +139,14 @@ The options are built either literally or fluently:
 
 ```rust
 let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
-    .filter(WidgetFilterField::TenantId.eq(&tenant_id)?)
+    .filter(WidgetFilterField::TENANT_ID.eq(&tenant_id)?)
     .order(WidgetOrderField::CreatedAt.desc().nulls_last())
     .limit(50);
 ```
 
 `into_read_options` lowers them to the source-independent `ReadOptions` in
-`crates/infra/src/db/read_options.rs`, whose fields are `datagrid_query` types:
+`crates/infra/src/db/read_options.rs`. Both that method and the type are
+crate-internal; the fields are `datagrid_query` types:
 
 ```rust
 pub struct ReadOptions {
@@ -139,11 +159,9 @@ pub struct ReadOptions {
 ```
 
 `TypedFilter` is the internal half of a filter: a condition plus its column's
-`SqlType`. A generated read never asks a caller for that type, so a column name
-cannot be typed by hand; the entity's fields lower to it inside the module.
-
-`to_value` is the free-function form of `BindValue`, for a caller that wants
-the converted value itself rather than a filter.
+`SqlType`. It, `ReadOptions`, and `BindValue` are crate-visible only, so a
+column name cannot be typed by hand and a raw bind value cannot be supplied;
+the entity's fields lower to them inside the module.
 
 ## Planned parameters
 

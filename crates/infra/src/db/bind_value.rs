@@ -3,8 +3,8 @@ use datagrid_query::Value;
 use super::ReadError;
 
 /// A value a filter can bind: anything with a JSON form, which includes every model newtype such
-/// as a branded id or `Money`.
-pub trait BindValue {
+/// as a branded id or `Money`. Crate-internal: a generated builder is the way a caller supplies one.
+pub(crate) trait BindValue {
     /// The builder's bind value.
     ///
     /// # Errors
@@ -20,20 +20,11 @@ impl<T: serde::Serialize + ?Sized> BindValue for T {
     }
 }
 
-/// Turn a model value into the builder's bind value.
-///
-/// # Errors
-///
-/// Returns [`ReadError::Encode`] when the value has no JSON form.
-pub fn to_value<T: serde::Serialize>(value: &T) -> Result<Value, ReadError> {
-    value.to_bind_value()
-}
-
 #[cfg(test)]
 mod tests {
     use datagrid_query::Value;
 
-    use super::{BindValue, to_value};
+    use super::BindValue;
 
     /// The shape a generated model id takes: a newtype over its stored value.
     #[derive(Debug, serde::Serialize)]
@@ -92,13 +83,5 @@ mod tests {
             .expect("a struct encodes");
 
         assert_eq!(value, Value::Json(serde_json::json!({ "sides": 4 })));
-    }
-
-    #[test]
-    fn keeps_the_free_function_as_a_wrapper() {
-        assert_eq!(
-            to_value(&WidgetId("w1".to_owned())).expect("an id encodes"),
-            Value::Text("w1".to_owned())
-        );
     }
 }
