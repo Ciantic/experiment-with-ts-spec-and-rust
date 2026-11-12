@@ -3,6 +3,7 @@
 use crate::domain::primitives::email_address::EmailAddress;
 use crate::domain::primitives::version::Version;
 use crate::domain::user_service::tenant::TenantId;
+use crate::Partial;
 
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct EmailId(pub String);
@@ -40,4 +41,133 @@ pub struct Email {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub version: Version,
+}
+
+/// The selected shape of Email: a field is set when the read selected it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmailSelect {
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub id: Partial<EmailId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<Option<TenantId>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub from: Partial<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub to: Partial<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub subject: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub body: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub status: Partial<EmailStatus>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub attempts: Partial<i64>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub max_attempts: Partial<i64>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub last_error: Partial<Option<String>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub sent_at: Partial<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub created_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub version: Partial<Version>,
+}
+
+/// The fields a create writes: a defaulted column may be omitted, and the database fills it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EmailInsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<EmailId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<TenantId>,
+    pub from: EmailAddress,
+    pub to: EmailAddress,
+    pub subject: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<EmailStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_attempts: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+}
+
+/// The fields an upsert writes: what a create carries, plus the key and version it claims.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EmailUpsert {
+    pub id: EmailId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tenant_id: Option<TenantId>,
+    pub from: EmailAddress,
+    pub to: EmailAddress,
+    pub subject: String,
+    pub body: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<EmailStatus>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempts: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_attempts: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// A partial update: every field is optional except the key and the version.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EmailPatch {
+    pub id: EmailId,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<Option<TenantId>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub from: Partial<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub to: Partial<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub subject: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub body: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub status: Partial<EmailStatus>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub attempts: Partial<i64>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub max_attempts: Partial<i64>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub last_error: Partial<Option<String>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub sent_at: Partial<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// The key a delete addresses, and a rows watch carries.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct EmailPrimaryKey {
+    pub id: EmailId,
 }

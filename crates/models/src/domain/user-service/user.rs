@@ -2,6 +2,7 @@
 
 use crate::domain::primitives::email_address::EmailAddress;
 use crate::domain::primitives::version::Version;
+use crate::Partial;
 
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct UserId(pub String);
@@ -18,4 +19,83 @@ pub struct User {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
     pub version: Version,
+}
+
+/// The selected shape of User: a field is set when the read selected it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UserSelect {
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub id: Partial<UserId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub email: Partial<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub email_verified_at: Partial<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub created_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub deleted_at: Partial<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub version: Partial<Version>,
+}
+
+/// The fields a create writes: a defaulted column may be omitted, and the database fills it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserInsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<UserId>,
+    pub email: EmailAddress,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+}
+
+/// The fields an upsert writes: what a create carries, plus the key and version it claims.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserUpsert {
+    pub id: UserId,
+    pub email: EmailAddress,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// A partial update: every field is optional except the key and the version.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserPatch {
+    pub id: UserId,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub email: Partial<EmailAddress>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub email_verified_at: Partial<Option<chrono::DateTime<chrono::Utc>>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub deleted_at: Partial<Option<chrono::DateTime<chrono::Utc>>>,
+    pub version: Version,
+}
+
+/// The key a delete addresses, and a rows watch carries.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserPrimaryKey {
+    pub id: UserId,
 }

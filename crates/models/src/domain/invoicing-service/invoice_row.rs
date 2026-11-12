@@ -7,6 +7,7 @@ use crate::domain::invoicing_service::primitives::tax_rate::TaxRate;
 use crate::domain::invoicing_service::primitives::unit::Unit;
 use crate::domain::primitives::version::Version;
 use crate::domain::user_service::tenant::TenantId;
+use crate::Partial;
 
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct InvoiceRowId(pub String);
@@ -36,4 +37,119 @@ pub struct InvoiceRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub version: Version,
+}
+
+/// The selected shape of InvoiceRow: a field is set when the read selected it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceRowSelect {
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub id: Partial<InvoiceRowId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub invoice_id: Partial<InvoiceId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub description: Partial<Option<String>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub quantity: Partial<Option<Quantity>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit: Partial<Option<Unit>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit_price: Partial<Option<Money>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_rate: Partial<Option<TaxRate>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub net_amount: Partial<Option<Money>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_amount: Partial<Option<Money>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub total_amount: Partial<Option<Money>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub created_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub version: Partial<Version>,
+}
+
+/// The fields a create writes: a defaulted column may be omitted, and the database fills it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceRowInsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<InvoiceRowId>,
+    pub tenant_id: TenantId,
+    pub invoice_id: InvoiceId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantity: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<Unit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit_price: Option<Money>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tax_rate: Option<TaxRate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+}
+
+/// The fields an upsert writes: what a create carries, plus the key and version it claims.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceRowUpsert {
+    pub id: InvoiceRowId,
+    pub tenant_id: TenantId,
+    pub invoice_id: InvoiceId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quantity: Option<Quantity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit: Option<Unit>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub unit_price: Option<Money>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tax_rate: Option<TaxRate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// A partial update: every field is optional except the key and the version.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceRowPatch {
+    pub id: InvoiceRowId,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub invoice_id: Partial<InvoiceId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub description: Partial<Option<String>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub quantity: Partial<Option<Quantity>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit: Partial<Option<Unit>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit_price: Partial<Option<Money>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_rate: Partial<Option<TaxRate>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// The key a delete addresses, and a rows watch carries.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceRowPrimaryKey {
+    pub id: InvoiceRowId,
 }

@@ -6,6 +6,7 @@ use crate::domain::invoicing_service::primitives::quantity::Quantity;
 use crate::domain::invoicing_service::primitives::tax_rate::TaxRate;
 use crate::domain::invoicing_service::primitives::unit::Unit;
 use crate::domain::user_service::tenant::TenantId;
+use crate::Partial;
 
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct InvoiceSentRowId(pub String);
@@ -24,4 +25,101 @@ pub struct InvoiceSentRow {
     pub net_amount: Money,
     pub tax_amount: Money,
     pub total_amount: Money,
+}
+
+/// The selected shape of InvoiceSentRow: a field is set when the read selected it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InvoiceSentRowSelect {
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub id: Partial<InvoiceSentRowId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub invoice_sent_id: Partial<InvoiceSentId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub description: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub quantity: Partial<Quantity>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit: Partial<Unit>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit_price: Partial<Money>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_rate: Partial<TaxRate>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub net_amount: Partial<Money>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_amount: Partial<Money>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub total_amount: Partial<Money>,
+}
+
+/// The fields a create writes: a defaulted column may be omitted, and the database fills it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceSentRowInsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<InvoiceSentRowId>,
+    pub tenant_id: TenantId,
+    pub invoice_sent_id: InvoiceSentId,
+    pub description: String,
+    pub quantity: Quantity,
+    pub unit: Unit,
+    pub unit_price: Money,
+    pub tax_rate: TaxRate,
+    pub net_amount: Money,
+    pub tax_amount: Money,
+    pub total_amount: Money,
+}
+
+/// The fields an upsert writes: what a create carries, plus the key and version it claims.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceSentRowUpsert {
+    pub id: InvoiceSentRowId,
+    pub tenant_id: TenantId,
+    pub invoice_sent_id: InvoiceSentId,
+    pub description: String,
+    pub quantity: Quantity,
+    pub unit: Unit,
+    pub unit_price: Money,
+    pub tax_rate: TaxRate,
+    pub net_amount: Money,
+    pub tax_amount: Money,
+    pub total_amount: Money,
+}
+
+/// A partial update: every field is optional except the key and the version.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceSentRowPatch {
+    pub id: InvoiceSentRowId,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub invoice_sent_id: Partial<InvoiceSentId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub description: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub quantity: Partial<Quantity>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit: Partial<Unit>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub unit_price: Partial<Money>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_rate: Partial<TaxRate>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub net_amount: Partial<Money>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tax_amount: Partial<Money>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub total_amount: Partial<Money>,
+}
+
+/// The key a delete addresses, and a rows watch carries.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct InvoiceSentRowPrimaryKey {
+    pub id: InvoiceSentRowId,
 }

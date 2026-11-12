@@ -5,6 +5,7 @@ use crate::domain::invoicing_service::primitives::e_invoice_operator::EInvoiceOp
 use crate::domain::invoicing_service::primitives::language::Language;
 use crate::domain::primitives::version::Version;
 use crate::domain::user_service::tenant::TenantId;
+use crate::Partial;
 
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct SellerId(pub String);
@@ -25,4 +26,103 @@ pub struct Seller {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub version: Version,
+}
+
+/// The selected shape of Seller: a field is set when the read selected it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SellerSelect {
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub id: Partial<SellerId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub name: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub business_id: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub e_invoice_address: Partial<Option<EInvoiceAddress>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub e_invoice_operator: Partial<Option<EInvoiceOperator>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub language: Partial<Option<Language>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub created_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub version: Partial<Version>,
+}
+
+/// The fields a create writes: a defaulted column may be omitted, and the database fills it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SellerInsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<SellerId>,
+    pub tenant_id: TenantId,
+    pub name: String,
+    pub business_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e_invoice_address: Option<EInvoiceAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e_invoice_operator: Option<EInvoiceOperator>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<Language>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+}
+
+/// The fields an upsert writes: what a create carries, plus the key and version it claims.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SellerUpsert {
+    pub id: SellerId,
+    pub tenant_id: TenantId,
+    pub name: String,
+    pub business_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e_invoice_address: Option<EInvoiceAddress>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e_invoice_operator: Option<EInvoiceOperator>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub language: Option<Language>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// A partial update: every field is optional except the key and the version.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SellerPatch {
+    pub id: SellerId,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub name: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub business_id: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub e_invoice_address: Partial<Option<EInvoiceAddress>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub e_invoice_operator: Partial<Option<EInvoiceOperator>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub language: Partial<Option<Language>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// The key a delete addresses, and a rows watch carries.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SellerPrimaryKey {
+    pub id: SellerId,
 }

@@ -4,7 +4,13 @@ import { basename, dirname, join, relative as relativePath } from "node:path";
 import { MODELS_CRATE_ROOT } from "../paths.ts";
 import {
     SPEC_SRC_ROOT,
+    defaultedInsertProperties,
+    inlinedFromInsert,
     loadSpec,
+    nullablePatchProperties,
+    omittedFromInsert,
+    omittedFromPatch,
+    primaryKeyProperties,
     type SpecInterface,
     type SpecModel,
     type SpecProperty,
@@ -140,6 +146,8 @@ interface RenderContext {
     currentFilePath: string;
     imports: Set<string>;
     diagnostics: Diagnostic[];
+    /** Set when an item uses the crate's field-presence type, so the module imports it once. */
+    usesPartial: boolean;
 }
 
 /** The aliases and entities a spec source file contributes to the output. */
@@ -456,6 +464,60 @@ function renderAlias(alias: SpecTypeAlias, context: RenderContext): string[] {
     return renderNewtype(alias.name, base);
 }
 
+/** The serde attribute that marks a field as presence-tracked, or as an optional value. */
+function presenceAttribute(options: { present?: boolean; optional?: boolean }): string[] {
+    if (options.present) {
+        return ['    #[serde(default, skip_serializing_if = "Partial::is_unset")]'];
+    }
+    if (options.optional) {
+        return ['    #[serde(default, skip_serializing_if = "Option::is_none")]'];
+    }
+    return [];
+}
+
+/** One field of a generated struct: its spec name, its Rust type, and how its absence reads on the wire. */
+interface FieldShape {
+    property: SpecProperty;
+    rustType: string;
+    present?: boolean;
+    optional?: boolean;
+}
+
+/** Render one field, renaming a Rust keyword back to the spec's spelling on the wire. */
+function renderField(shape: FieldShape): string[] {
+    const identifier = fieldIdentifier(shape.property.name);
+    const lines = presenceAttribute(shape);
+    if (identifier.startsWith("r#")) {
+        lines.push(`    #[serde(rename = ${JSON.stringify(shape.property.name)})]`);
+    }
+    lines.push(`    pub ${identifier}: ${shape.rustType},`);
+    return lines;
+}
+
+/** Render a struct from its field shapes. */
+function renderStruct(
+    name: string,
+    doc: string,
+    serde: string,
+    shapes: FieldShape[],
+    context: RenderContext,
+): string[] {
+    if (shapes.some((shape) => shape.present || shape.rustType.includes("Partial<"))) {
+        context.usesPartial = true;
+    }
+    const lines = [
+        `/// ${doc}`,
+        "#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]",
+        serde,
+        `pub struct ${name} {`,
+    ];
+    for (const shape of shapes) {
+        lines.push(...renderField(shape));
+    }
+    lines.push("}");
+    return lines;
+}
+
 /** Render an entity as a serde struct, with camelCase field names on the wire. */
 function renderEntity(entity: SpecInterface, context: RenderContext): string[] {
     const lines = [
@@ -464,15 +526,15 @@ function renderEntity(entity: SpecInterface, context: RenderContext): string[] {
         `pub struct ${entity.name} {`,
     ];
     for (const property of entity.properties) {
-        const rendered = renderPropertyType(property, context);
-        const name = fieldIdentifier(property.name);
-        if (property.optional) {
-            lines.push('    #[serde(default, skip_serializing_if = "Option::is_none")]');
-        }
-        if (name.startsWith("r#")) {
-            lines.push(`    #[serde(rename = ${JSON.stringify(property.name)})]`);
-        }
-        lines.push(`    pub ${name}: ${property.optional ? `Option<${rendered}>` : rendered},`);
+        lines.push(
+            ...renderField({
+                property,
+                rustType: property.optional
+                    ? `Option<${renderPropertyType(property, context)}>`
+                    : renderPropertyType(property, context),
+                optional: property.optional,
+            }),
+        );
     }
     lines.push("}");
     return lines;
@@ -489,6 +551,176 @@ function renderPropertyType(property: SpecProperty, context: RenderContext): str
         message: `cannot map the type \`${property.typeText}\` of \`${property.name}\` to Rust`,
     });
     return "String";
+}
+
+/** The entity a field names, whether directly or as an array element; undefined for a scalar. */
+function entityNameOf(type: SpecType, spec: SpecModel): string | undefined {
+    if (type.kind === "reference") {
+        return spec.interfaces.has(type.name) ? type.name : undefined;
+    }
+    if (type.kind === "array") {
+        return entityNameOf(type.element, spec);
+    }
+    return undefined;
+}
+
+/** Import another entity's derived struct, naming it by suffix: `Customer` -> `CustomerSelect`. */
+function addStructImport(context: RenderContext, target: string, suffix: string): void {
+    const entity = context.spec.interfaces.get(target);
+    if (entity === undefined) {
+        return;
+    }
+    addImport(context, entity.filePath, `${target}${suffix}`);
+}
+
+/** The type a field takes in a selection, so a branch carries its target's selection. */
+function selectType(property: SpecProperty, context: RenderContext): string {
+    const target = entityNameOf(property.type, context.spec);
+    let inner: string;
+    if (target === undefined) {
+        inner = renderPropertyType(property, context);
+    } else {
+        addStructImport(context, target, "Select");
+        inner = property.type.kind === "array" ? `Vec<${target}Select>` : `${target}Select`;
+    }
+    return property.optional ? `Partial<Option<${inner}>>` : `Partial<${inner}>`;
+}
+
+/** The fields a create writes, as the model's own omit and relax sets describe them. */
+function insertShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
+    const omitted = new Set(omittedFromInsert(entity).map((property) => property.name));
+    const defaulted = new Set(defaultedInsertProperties(entity).map((property) => property.name));
+    const inlined = new Set(inlinedFromInsert(entity).map((property) => property.name));
+    return entity.properties
+        .filter((property) => !omitted.has(property.name))
+        .map((property) => {
+            const target = entityNameOf(property.type, context.spec);
+            let inner: string;
+            if (target !== undefined && inlined.has(property.name)) {
+                addStructImport(context, target, "Insert");
+                inner = `${target}Insert`;
+            } else {
+                inner = renderPropertyType(property, context);
+            }
+            const optional = property.optional || defaulted.has(property.name);
+            return { property, rustType: optional ? `Option<${inner}>` : inner, optional };
+        });
+}
+
+/** The fields an upsert writes: a create's set, plus the key an identity column assigns back. */
+function upsertShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
+    const omitted = new Set(
+        omittedFromInsert(entity)
+            .filter((property) => !property.tags.primaryKey)
+            .map((property) => property.name),
+    );
+    const defaulted = new Set(defaultedInsertProperties(entity).map((property) => property.name));
+    const inlined = new Set(inlinedFromInsert(entity).map((property) => property.name));
+    const locked = new Set(
+        entity.properties
+            .filter((property) => property.tags.primaryKey || property.tags.version)
+            .map((property) => property.name),
+    );
+    return entity.properties
+        .filter((property) => !omitted.has(property.name))
+        .map((property) => {
+            const target = entityNameOf(property.type, context.spec);
+            let inner: string;
+            if (target !== undefined && inlined.has(property.name)) {
+                addStructImport(context, target, "Insert");
+                inner = `${target}Insert`;
+            } else {
+                inner = renderPropertyType(property, context);
+            }
+            const optional = !locked.has(property.name) && (property.optional || defaulted.has(property.name));
+            return { property, rustType: optional ? `Option<${inner}>` : inner, ...(optional ? { optional } : {}) };
+        });
+}
+
+/** The fields a patch writes: a create's, less the creation clock, plus the key and version it locks. */
+function patchShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
+    const omitted = new Set(omittedFromPatch(entity).map((property) => property.name));
+    const nullable = new Set(nullablePatchProperties(entity).map((property) => property.name));
+    const inlined = new Set(inlinedFromInsert(entity).map((property) => property.name));
+    return entity.properties
+        .filter((property) => !omitted.has(property.name))
+        .map((property) => {
+            const target = entityNameOf(property.type, context.spec);
+            let inner: string;
+            if (target !== undefined && inlined.has(property.name)) {
+                addStructImport(context, target, "Insert");
+                inner = `${target}Insert`;
+            } else {
+                inner = renderPropertyType(property, context);
+            }
+            const locked = property.tags.primaryKey || property.tags.version;
+            if (locked) {
+                return { property, rustType: inner };
+            }
+            const present = { present: true };
+            return {
+                property,
+                rustType: nullable.has(property.name) ? `Partial<Option<${inner}>>` : `Partial<${inner}>`,
+                ...present,
+            };
+        });
+}
+
+/** The key a delete addresses and a `rows` watch carries. */
+function primaryKeyShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
+    return primaryKeyProperties(entity).map((property) => ({ property, rustType: renderPropertyType(property, context) }));
+}
+
+/** Render every struct derived from one entity: the row, its selection, and its write shapes. */
+function renderEntityStructs(entity: SpecInterface, context: RenderContext): string[][] {
+    const blocks = [
+        renderEntity(entity, context),
+        renderStruct(
+            `${entity.name}Select`,
+            `The selected shape of ${entity.name}: a field is set when the read selected it.`,
+            '#[serde(rename_all = "camelCase")]',
+            entity.properties.map((property) => ({
+                property,
+                rustType: selectType(property, context),
+                present: true,
+            })),
+            context,
+        ),
+        renderStruct(
+            `${entity.name}Insert`,
+            "The fields a create writes: a defaulted column may be omitted, and the database fills it.",
+            '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
+            insertShapes(entity, context),
+            context,
+        ),
+        renderStruct(
+            `${entity.name}Upsert`,
+            "The fields an upsert writes: what a create carries, plus the key and version it claims.",
+            '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
+            upsertShapes(entity, context),
+            context,
+        ),
+        renderStruct(
+            `${entity.name}Patch`,
+            "A partial update: every field is optional except the key and the version.",
+            '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
+            patchShapes(entity, context),
+            context,
+        ),
+    ];
+    const key = primaryKeyShapes(entity, context);
+    if (key.length > 0) {
+        blocks.push(
+            renderStruct(
+                `${entity.name}PrimaryKey`,
+                "The key a delete addresses, and a rows watch carries.",
+                '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
+                key,
+                context,
+            ),
+        );
+    }
+    return blocks;
 }
 
 /** The aliases the generator writes: concrete aliases in an entity file or a file marked `@primitive`. */
@@ -554,13 +786,17 @@ export function buildRustModels(spec: SpecModel): { files: GeneratedFiles; diagn
             currentFilePath: filePath,
             imports: new Set(),
             diagnostics,
+            usesPartial: false,
         };
         const blocks: string[][] = [];
         for (const alias of [...group.aliases].sort((a, b) => a.name.localeCompare(b.name))) {
             blocks.push(renderAlias(alias, context));
         }
         for (const entity of [...group.entities].sort((a, b) => a.name.localeCompare(b.name))) {
-            blocks.push(renderEntity(entity, context));
+            blocks.push(...renderEntityStructs(entity, context));
+        }
+        if (context.usesPartial) {
+            context.imports.add("use crate::Partial;");
         }
         files.set(outputPath(filePath), renderFile(blocks, context.imports));
     }

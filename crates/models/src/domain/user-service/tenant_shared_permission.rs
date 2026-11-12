@@ -2,6 +2,7 @@
 
 use crate::domain::primitives::version::Version;
 use crate::domain::user_service::tenant::TenantId;
+use crate::Partial;
 
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct TenantSharedPermissionId(pub String);
@@ -16,4 +17,79 @@ pub struct TenantSharedPermission {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub version: Version,
+}
+
+/// The selected shape of TenantSharedPermission: a field is set when the read selected it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TenantSharedPermissionSelect {
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub id: Partial<TenantSharedPermissionId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub owner_tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub shared_tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub permissions: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub created_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub version: Partial<Version>,
+}
+
+/// The fields a create writes: a defaulted column may be omitted, and the database fills it.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TenantSharedPermissionInsert {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<TenantSharedPermissionId>,
+    pub owner_tenant_id: TenantId,
+    pub shared_tenant_id: TenantId,
+    pub permissions: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<Version>,
+}
+
+/// The fields an upsert writes: what a create carries, plus the key and version it claims.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TenantSharedPermissionUpsert {
+    pub id: TenantSharedPermissionId,
+    pub owner_tenant_id: TenantId,
+    pub shared_tenant_id: TenantId,
+    pub permissions: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// A partial update: every field is optional except the key and the version.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TenantSharedPermissionPatch {
+    pub id: TenantSharedPermissionId,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub owner_tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub shared_tenant_id: Partial<TenantId>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub permissions: Partial<String>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub updated_at: Partial<chrono::DateTime<chrono::Utc>>,
+    pub version: Version,
+}
+
+/// The key a delete addresses, and a rows watch carries.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TenantSharedPermissionPrimaryKey {
+    pub id: TenantSharedPermissionId,
 }
