@@ -1,6 +1,7 @@
 //! The infra crate's database layer.
 
 mod bind_value;
+mod comparison;
 mod executor;
 mod postgres;
 mod read_options;
@@ -8,6 +9,7 @@ mod sql_type;
 
 pub mod queries;
 
+pub use comparison::{Comparison, owned};
 pub use executor::{ReadError, Row, SqlExecutor, decode_rows};
 pub use read_options::{Param, PlannedQuery};
 pub use sql_type::SqlType;

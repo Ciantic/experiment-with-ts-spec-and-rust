@@ -3,11 +3,10 @@
 use std::borrow::Borrow;
 
 use crate::db::{
-    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,
+    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,
+    decode_rows, owned,
 };
-use datagrid_query::{
-    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,
-};
+use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};
 use models::domain::primitives::email_address::EmailAddress;
 use models::domain::user_service::user::UserId;
 use models::domain::user_service::user::UserSelect;
@@ -143,53 +142,38 @@ impl UserIdFilter {
     }
 
     /// `id = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<UserId>) -> Result<UserFilter, ReadError> {
-        UserFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<UserId>) -> UserFilter {
+        UserFilter::Id(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `id <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<UserId>) -> Result<UserFilter, ReadError> {
-        UserFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<UserId>) -> UserFilter {
+        UserFilter::Id(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `id = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<UserId>>,
-    ) -> Result<UserFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(UserFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<UserId>>) -> UserFilter {
+        UserFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `id is null`.
     #[must_use]
     pub fn is_null(self) -> UserFilter {
-        UserFilter::condition(self.0, FilterOperator::IsNull, None)
+        UserFilter::Id(Comparison::IsNull)
     }
 
     /// `id is not null`.
     #[must_use]
     pub fn is_not_null(self) -> UserFilter {
-        UserFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        UserFilter::Id(Comparison::IsNotNull)
     }
 }
 
@@ -205,53 +189,38 @@ impl UserEmailFilter {
     }
 
     /// `email = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<EmailAddress>) -> Result<UserFilter, ReadError> {
-        UserFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<EmailAddress>) -> UserFilter {
+        UserFilter::Email(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `email <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<EmailAddress>) -> Result<UserFilter, ReadError> {
-        UserFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<EmailAddress>) -> UserFilter {
+        UserFilter::Email(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `email = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<EmailAddress>>,
-    ) -> Result<UserFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(UserFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailAddress>>) -> UserFilter {
+        UserFilter::Email(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `email is null`.
     #[must_use]
     pub fn is_null(self) -> UserFilter {
-        UserFilter::condition(self.0, FilterOperator::IsNull, None)
+        UserFilter::Email(Comparison::IsNull)
     }
 
     /// `email is not null`.
     #[must_use]
     pub fn is_not_null(self) -> UserFilter {
-        UserFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        UserFilter::Email(Comparison::IsNotNull)
     }
 }
 
@@ -267,141 +236,103 @@ impl UserDeletedAtFilter {
     }
 
     /// `deletedAt = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(
-        self,
-        value: impl Borrow<chrono::DateTime<chrono::Utc>>,
-    ) -> Result<UserFilter, ReadError> {
-        UserFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<chrono::DateTime<chrono::Utc>>) -> UserFilter {
+        UserFilter::DeletedAt(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `deletedAt <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(
-        self,
-        value: impl Borrow<chrono::DateTime<chrono::Utc>>,
-    ) -> Result<UserFilter, ReadError> {
-        UserFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<chrono::DateTime<chrono::Utc>>) -> UserFilter {
+        UserFilter::DeletedAt(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `deletedAt = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    #[must_use]
     pub fn any(
         self,
         values: impl IntoIterator<Item = impl Borrow<chrono::DateTime<chrono::Utc>>>,
-    ) -> Result<UserFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(UserFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    ) -> UserFilter {
+        UserFilter::DeletedAt(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `deletedAt is null`.
     #[must_use]
     pub fn is_null(self) -> UserFilter {
-        UserFilter::condition(self.0, FilterOperator::IsNull, None)
+        UserFilter::DeletedAt(Comparison::IsNull)
     }
 
     /// `deletedAt is not null`.
     #[must_use]
     pub fn is_not_null(self) -> UserFilter {
-        UserFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        UserFilter::DeletedAt(Comparison::IsNotNull)
     }
 }
 
-/// A filter over `User`: one comparison on a `UserFilterField`, or a group of them.
-/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+/// A filter over `User`: a comparison on one of its columns, or a group of them.
+/// The read's filters are combined with `and`. Each variant's value has that column's model type,
+/// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
 #[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum UserFilter {
-    /// One comparison on one column.
-    Condition {
-        field: UserFilterField,
-        operator: FilterOperator,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        value: Option<Value>,
-    },
+    /// A comparison on `id`.
+    Id(Comparison<UserId>),
+    /// A comparison on `email`.
+    Email(Comparison<EmailAddress>),
+    /// A comparison on `deletedAt`.
+    DeletedAt(Comparison<chrono::DateTime<chrono::Utc>>),
     /// Every child must match.
-    And { filters: Vec<Self> },
+    And(Vec<Self>),
     /// Any child may match.
-    Or { filters: Vec<Self> },
+    Or(Vec<Self>),
 }
 
 impl UserFilter {
-    /// One comparison on one column; a typed builder is the way a caller reaches this.
-    fn condition(field: UserFilterField, operator: FilterOperator, value: Option<Value>) -> Self {
-        Self::Condition {
-            field,
-            operator,
-            value,
-        }
-    }
-
-    /// One comparison on one column, converting `value` to a bind value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    fn bind(
-        field: UserFilterField,
-        operator: FilterOperator,
-        value: impl BindValue,
-    ) -> Result<Self, ReadError> {
-        Ok(Self::condition(
-            field,
-            operator,
-            Some(value.to_bind_value()?),
-        ))
-    }
-
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And {
-            filters: filters.into_iter().collect(),
-        }
+        Self::And(filters.into_iter().collect())
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or {
-            filters: filters.into_iter().collect(),
-        }
+        Self::Or(filters.into_iter().collect())
     }
 
     /// The typed filter the planner binds.
-    #[must_use]
-    pub fn into_typed_filter(self) -> TypedFilter {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
         match self {
-            Self::Condition {
-                field,
-                operator,
-                value,
-            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::And, children)
+            Self::Id(comparison) => TypedFilter::comparison("id", SqlType::Uuid, comparison),
+            Self::Email(comparison) => TypedFilter::comparison("email", SqlType::Text, comparison),
+            Self::DeletedAt(comparison) => {
+                TypedFilter::comparison("deletedAt", SqlType::Timestamptz, comparison)
             }
-            Self::Or { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::Or, children)
-            }
+            Self::And(filters) => Self::group(Combinator::And, filters),
+            Self::Or(filters) => Self::group(Combinator::Or, filters),
         }
+    }
+
+    /// Lower a nested group, keeping each child's column type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a child's value has no JSON form.
+    fn group(combinator: Combinator, filters: Vec<Self>) -> Result<TypedFilter, ReadError> {
+        let mut typed = Vec::with_capacity(filters.len());
+        for filter in filters {
+            typed.push(filter.into_typed_filter()?);
+        }
+        Ok(TypedFilter::group(combinator, typed))
     }
 }
 
@@ -545,19 +476,22 @@ impl UserReadOptions {
     }
 
     /// The source-independent read the crate's planner takes; not part of the public surface.
-    #[must_use]
-    pub(crate) fn into_read_options(self) -> ReadOptions {
-        ReadOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.
+    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {
+        let mut filters = Vec::with_capacity(self.filters.len());
+        for filter in self.filters {
+            filters.push(filter.into_typed_filter()?);
+        }
+        Ok(ReadOptions {
             columns: self
                 .select
                 .into_iter()
                 .map(|field| field.select())
                 .collect(),
-            filters: self
-                .filters
-                .into_iter()
-                .map(|filter| filter.into_typed_filter())
-                .collect(),
+            filters,
             sort: self
                 .order
                 .into_iter()
@@ -565,7 +499,7 @@ impl UserReadOptions {
                 .collect(),
             limit: self.limit,
             offset: self.offset,
-        }
+        })
     }
 }
 
@@ -575,7 +509,7 @@ impl UserReadOptions {
 ///
 /// Returns [`ReadError::Build`] when the options do not form a valid statement.
 pub fn build_query_user(options: UserReadOptions) -> Result<PlannedQuery, ReadError> {
-    let read = options.into_read_options();
+    let read = options.into_read_options()?;
     read.plan("user", None)
 }
 

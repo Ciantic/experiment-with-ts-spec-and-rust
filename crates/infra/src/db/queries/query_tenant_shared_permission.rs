@@ -3,11 +3,10 @@
 use std::borrow::Borrow;
 
 use crate::db::{
-    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,
+    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,
+    decode_rows, owned,
 };
-use datagrid_query::{
-    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,
-};
+use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};
 use models::domain::user_service::tenant::TenantId;
 use models::domain::user_service::tenant_shared_permission::TenantSharedPermissionId;
 use models::domain::user_service::tenant_shared_permission::TenantSharedPermissionSelect;
@@ -145,59 +144,41 @@ impl TenantSharedPermissionIdFilter {
     }
 
     /// `id = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(
-        self,
-        value: impl Borrow<TenantSharedPermissionId>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        TenantSharedPermissionFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantSharedPermissionId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `id <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(
-        self,
-        value: impl Borrow<TenantSharedPermissionId>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        TenantSharedPermissionFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantSharedPermissionId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `id = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    #[must_use]
     pub fn any(
         self,
         values: impl IntoIterator<Item = impl Borrow<TenantSharedPermissionId>>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(TenantSharedPermissionFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    ) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `id is null`.
     #[must_use]
     pub fn is_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::condition(self.0, FilterOperator::IsNull, None)
+        TenantSharedPermissionFilter::Id(Comparison::IsNull)
     }
 
     /// `id is not null`.
     #[must_use]
     pub fn is_not_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        TenantSharedPermissionFilter::Id(Comparison::IsNotNull)
     }
 }
 
@@ -213,59 +194,41 @@ impl TenantSharedPermissionOwnerTenantIdFilter {
     }
 
     /// `ownerTenantId = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(
-        self,
-        value: impl Borrow<TenantId>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        TenantSharedPermissionFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `ownerTenantId <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(
-        self,
-        value: impl Borrow<TenantId>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        TenantSharedPermissionFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `ownerTenantId = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    #[must_use]
     pub fn any(
         self,
         values: impl IntoIterator<Item = impl Borrow<TenantId>>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(TenantSharedPermissionFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    ) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `ownerTenantId is null`.
     #[must_use]
     pub fn is_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::condition(self.0, FilterOperator::IsNull, None)
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::IsNull)
     }
 
     /// `ownerTenantId is not null`.
     #[must_use]
     pub fn is_not_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::IsNotNull)
     }
 }
 
@@ -281,145 +244,105 @@ impl TenantSharedPermissionSharedTenantIdFilter {
     }
 
     /// `sharedTenantId = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(
-        self,
-        value: impl Borrow<TenantId>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        TenantSharedPermissionFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `sharedTenantId <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(
-        self,
-        value: impl Borrow<TenantId>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        TenantSharedPermissionFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `sharedTenantId = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    #[must_use]
     pub fn any(
         self,
         values: impl IntoIterator<Item = impl Borrow<TenantId>>,
-    ) -> Result<TenantSharedPermissionFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(TenantSharedPermissionFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    ) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `sharedTenantId is null`.
     #[must_use]
     pub fn is_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::condition(self.0, FilterOperator::IsNull, None)
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::IsNull)
     }
 
     /// `sharedTenantId is not null`.
     #[must_use]
     pub fn is_not_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::IsNotNull)
     }
 }
 
-/// A filter over `TenantSharedPermission`: one comparison on a `TenantSharedPermissionFilterField`, or a group of them.
-/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+/// A filter over `TenantSharedPermission`: a comparison on one of its columns, or a group of them.
+/// The read's filters are combined with `and`. Each variant's value has that column's model type,
+/// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
 #[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum TenantSharedPermissionFilter {
-    /// One comparison on one column.
-    Condition {
-        field: TenantSharedPermissionFilterField,
-        operator: FilterOperator,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        value: Option<Value>,
-    },
+    /// A comparison on `id`.
+    Id(Comparison<TenantSharedPermissionId>),
+    /// A comparison on `ownerTenantId`.
+    OwnerTenantId(Comparison<TenantId>),
+    /// A comparison on `sharedTenantId`.
+    SharedTenantId(Comparison<TenantId>),
     /// Every child must match.
-    And { filters: Vec<Self> },
+    And(Vec<Self>),
     /// Any child may match.
-    Or { filters: Vec<Self> },
+    Or(Vec<Self>),
 }
 
 impl TenantSharedPermissionFilter {
-    /// One comparison on one column; a typed builder is the way a caller reaches this.
-    fn condition(
-        field: TenantSharedPermissionFilterField,
-        operator: FilterOperator,
-        value: Option<Value>,
-    ) -> Self {
-        Self::Condition {
-            field,
-            operator,
-            value,
-        }
-    }
-
-    /// One comparison on one column, converting `value` to a bind value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    fn bind(
-        field: TenantSharedPermissionFilterField,
-        operator: FilterOperator,
-        value: impl BindValue,
-    ) -> Result<Self, ReadError> {
-        Ok(Self::condition(
-            field,
-            operator,
-            Some(value.to_bind_value()?),
-        ))
-    }
-
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And {
-            filters: filters.into_iter().collect(),
-        }
+        Self::And(filters.into_iter().collect())
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or {
-            filters: filters.into_iter().collect(),
-        }
+        Self::Or(filters.into_iter().collect())
     }
 
     /// The typed filter the planner binds.
-    #[must_use]
-    pub fn into_typed_filter(self) -> TypedFilter {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
         match self {
-            Self::Condition {
-                field,
-                operator,
-                value,
-            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::And, children)
+            Self::Id(comparison) => TypedFilter::comparison("id", SqlType::Uuid, comparison),
+            Self::OwnerTenantId(comparison) => {
+                TypedFilter::comparison("ownerTenantId", SqlType::Uuid, comparison)
             }
-            Self::Or { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::Or, children)
+            Self::SharedTenantId(comparison) => {
+                TypedFilter::comparison("sharedTenantId", SqlType::Uuid, comparison)
             }
+            Self::And(filters) => Self::group(Combinator::And, filters),
+            Self::Or(filters) => Self::group(Combinator::Or, filters),
         }
+    }
+
+    /// Lower a nested group, keeping each child's column type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a child's value has no JSON form.
+    fn group(combinator: Combinator, filters: Vec<Self>) -> Result<TypedFilter, ReadError> {
+        let mut typed = Vec::with_capacity(filters.len());
+        for filter in filters {
+            typed.push(filter.into_typed_filter()?);
+        }
+        Ok(TypedFilter::group(combinator, typed))
     }
 }
 
@@ -565,19 +488,22 @@ impl TenantSharedPermissionReadOptions {
     }
 
     /// The source-independent read the crate's planner takes; not part of the public surface.
-    #[must_use]
-    pub(crate) fn into_read_options(self) -> ReadOptions {
-        ReadOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.
+    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {
+        let mut filters = Vec::with_capacity(self.filters.len());
+        for filter in self.filters {
+            filters.push(filter.into_typed_filter()?);
+        }
+        Ok(ReadOptions {
             columns: self
                 .select
                 .into_iter()
                 .map(|field| field.select())
                 .collect(),
-            filters: self
-                .filters
-                .into_iter()
-                .map(|filter| filter.into_typed_filter())
-                .collect(),
+            filters,
             sort: self
                 .order
                 .into_iter()
@@ -585,7 +511,7 @@ impl TenantSharedPermissionReadOptions {
                 .collect(),
             limit: self.limit,
             offset: self.offset,
-        }
+        })
     }
 }
 
@@ -597,7 +523,7 @@ impl TenantSharedPermissionReadOptions {
 pub fn build_query_tenant_shared_permission(
     options: TenantSharedPermissionReadOptions,
 ) -> Result<PlannedQuery, ReadError> {
-    let read = options.into_read_options();
+    let read = options.into_read_options()?;
     read.plan("tenant_shared_permission", None)
 }
 

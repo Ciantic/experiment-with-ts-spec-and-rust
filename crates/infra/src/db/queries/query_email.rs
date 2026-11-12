@@ -3,11 +3,10 @@
 use std::borrow::Borrow;
 
 use crate::db::{
-    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,
+    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,
+    decode_rows, owned,
 };
-use datagrid_query::{
-    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,
-};
+use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};
 use models::domain::emailing_service::email::EmailId;
 use models::domain::emailing_service::email::EmailSelect;
 use models::domain::emailing_service::email::EmailStatus;
@@ -172,53 +171,38 @@ impl EmailIdFilter {
     }
 
     /// `id = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<EmailId>) -> Result<EmailFilter, ReadError> {
-        EmailFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<EmailId>) -> EmailFilter {
+        EmailFilter::Id(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `id <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<EmailId>) -> Result<EmailFilter, ReadError> {
-        EmailFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<EmailId>) -> EmailFilter {
+        EmailFilter::Id(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `id = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<EmailId>>,
-    ) -> Result<EmailFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(EmailFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailId>>) -> EmailFilter {
+        EmailFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `id is null`.
     #[must_use]
     pub fn is_null(self) -> EmailFilter {
-        EmailFilter::condition(self.0, FilterOperator::IsNull, None)
+        EmailFilter::Id(Comparison::IsNull)
     }
 
     /// `id is not null`.
     #[must_use]
     pub fn is_not_null(self) -> EmailFilter {
-        EmailFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        EmailFilter::Id(Comparison::IsNotNull)
     }
 }
 
@@ -234,53 +218,38 @@ impl EmailTenantIdFilter {
     }
 
     /// `tenantId = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<TenantId>) -> Result<EmailFilter, ReadError> {
-        EmailFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `tenantId <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<TenantId>) -> Result<EmailFilter, ReadError> {
-        EmailFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `tenantId = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<TenantId>>,
-    ) -> Result<EmailFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(EmailFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `tenantId is null`.
     #[must_use]
     pub fn is_null(self) -> EmailFilter {
-        EmailFilter::condition(self.0, FilterOperator::IsNull, None)
+        EmailFilter::TenantId(Comparison::IsNull)
     }
 
     /// `tenantId is not null`.
     #[must_use]
     pub fn is_not_null(self) -> EmailFilter {
-        EmailFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        EmailFilter::TenantId(Comparison::IsNotNull)
     }
 }
 
@@ -296,135 +265,102 @@ impl EmailStatusFilter {
     }
 
     /// `status = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<EmailStatus>) -> Result<EmailFilter, ReadError> {
-        EmailFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<EmailStatus>) -> EmailFilter {
+        EmailFilter::Status(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `status <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<EmailStatus>) -> Result<EmailFilter, ReadError> {
-        EmailFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<EmailStatus>) -> EmailFilter {
+        EmailFilter::Status(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `status = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<EmailStatus>>,
-    ) -> Result<EmailFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(EmailFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailStatus>>) -> EmailFilter {
+        EmailFilter::Status(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `status is null`.
     #[must_use]
     pub fn is_null(self) -> EmailFilter {
-        EmailFilter::condition(self.0, FilterOperator::IsNull, None)
+        EmailFilter::Status(Comparison::IsNull)
     }
 
     /// `status is not null`.
     #[must_use]
     pub fn is_not_null(self) -> EmailFilter {
-        EmailFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        EmailFilter::Status(Comparison::IsNotNull)
     }
 }
 
-/// A filter over `Email`: one comparison on a `EmailFilterField`, or a group of them.
-/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+/// A filter over `Email`: a comparison on one of its columns, or a group of them.
+/// The read's filters are combined with `and`. Each variant's value has that column's model type,
+/// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
 #[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum EmailFilter {
-    /// One comparison on one column.
-    Condition {
-        field: EmailFilterField,
-        operator: FilterOperator,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        value: Option<Value>,
-    },
+    /// A comparison on `id`.
+    Id(Comparison<EmailId>),
+    /// A comparison on `tenantId`.
+    TenantId(Comparison<TenantId>),
+    /// A comparison on `status`.
+    Status(Comparison<EmailStatus>),
     /// Every child must match.
-    And { filters: Vec<Self> },
+    And(Vec<Self>),
     /// Any child may match.
-    Or { filters: Vec<Self> },
+    Or(Vec<Self>),
 }
 
 impl EmailFilter {
-    /// One comparison on one column; a typed builder is the way a caller reaches this.
-    fn condition(field: EmailFilterField, operator: FilterOperator, value: Option<Value>) -> Self {
-        Self::Condition {
-            field,
-            operator,
-            value,
-        }
-    }
-
-    /// One comparison on one column, converting `value` to a bind value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    fn bind(
-        field: EmailFilterField,
-        operator: FilterOperator,
-        value: impl BindValue,
-    ) -> Result<Self, ReadError> {
-        Ok(Self::condition(
-            field,
-            operator,
-            Some(value.to_bind_value()?),
-        ))
-    }
-
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And {
-            filters: filters.into_iter().collect(),
-        }
+        Self::And(filters.into_iter().collect())
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or {
-            filters: filters.into_iter().collect(),
-        }
+        Self::Or(filters.into_iter().collect())
     }
 
     /// The typed filter the planner binds.
-    #[must_use]
-    pub fn into_typed_filter(self) -> TypedFilter {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
         match self {
-            Self::Condition {
-                field,
-                operator,
-                value,
-            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::And, children)
+            Self::Id(comparison) => TypedFilter::comparison("id", SqlType::Uuid, comparison),
+            Self::TenantId(comparison) => {
+                TypedFilter::comparison("tenantId", SqlType::Uuid, comparison)
             }
-            Self::Or { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::Or, children)
+            Self::Status(comparison) => {
+                TypedFilter::comparison("status", SqlType::Text, comparison)
             }
+            Self::And(filters) => Self::group(Combinator::And, filters),
+            Self::Or(filters) => Self::group(Combinator::Or, filters),
         }
+    }
+
+    /// Lower a nested group, keeping each child's column type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a child's value has no JSON form.
+    fn group(combinator: Combinator, filters: Vec<Self>) -> Result<TypedFilter, ReadError> {
+        let mut typed = Vec::with_capacity(filters.len());
+        for filter in filters {
+            typed.push(filter.into_typed_filter()?);
+        }
+        Ok(TypedFilter::group(combinator, typed))
     }
 }
 
@@ -580,19 +516,22 @@ impl EmailReadOptions {
     }
 
     /// The source-independent read the crate's planner takes; not part of the public surface.
-    #[must_use]
-    pub(crate) fn into_read_options(self) -> ReadOptions {
-        ReadOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.
+    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {
+        let mut filters = Vec::with_capacity(self.filters.len());
+        for filter in self.filters {
+            filters.push(filter.into_typed_filter()?);
+        }
+        Ok(ReadOptions {
             columns: self
                 .select
                 .into_iter()
                 .map(|field| field.select())
                 .collect(),
-            filters: self
-                .filters
-                .into_iter()
-                .map(|filter| filter.into_typed_filter())
-                .collect(),
+            filters,
             sort: self
                 .order
                 .into_iter()
@@ -600,7 +539,7 @@ impl EmailReadOptions {
                 .collect(),
             limit: self.limit,
             offset: self.offset,
-        }
+        })
     }
 }
 
@@ -610,7 +549,7 @@ impl EmailReadOptions {
 ///
 /// Returns [`ReadError::Build`] when the options do not form a valid statement.
 pub fn build_query_email(options: EmailReadOptions) -> Result<PlannedQuery, ReadError> {
-    let read = options.into_read_options();
+    let read = options.into_read_options()?;
     read.plan("email", None)
 }
 

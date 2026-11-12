@@ -245,90 +245,89 @@ function signature(name: string, params: string[], returns: string, indent = 0, 
     return lines;
 }
 
-/** Render the entity's typed filter tree, so a read cannot filter on another table's column. */
-function renderFilterStruct(entity: string): string[] {
+/** The type name of one field's comparison, e.g. `Comparison<TenantId>`. */
+function comparisonType(field: FilterFieldInfo): string {
+    return `Comparison<${field.valueType}>`;
+}
+
+/** Render the entity's filter enum: one variant per filterable column, plus the groups. */
+function renderFilterStruct(entity: string, fields: FilterFieldInfo[]): string[] {
     const filter = `${entity}Filter`;
-    const field = `${entity}FilterField`;
-    const bind = signature("bind", [`field: ${field}`, "operator: FilterOperator", "value: impl BindValue"], "Result<Self, ReadError>", 4, "");
-    return [
-        `/// A filter over \`${entity}\`: one comparison on a \`${field}\`, or a group of them.`,
-        `/// The read's filters are combined with \`and\`. See docs/rust-queries.md for the JSON shape.`,
+    const lines: string[] = [
+        `/// A filter over \`${entity}\`: a comparison on one of its columns, or a group of them.`,
+        `/// The read's filters are combined with \`and\`. Each variant's value has that column's model type,`,
+        `/// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.`,
         "#[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]",
-        '#[serde(tag = "kind", rename_all = "camelCase")]',
+        '#[serde(rename_all = "camelCase")]',
         `pub enum ${filter} {`,
-        "    /// One comparison on one column.",
-        "    Condition {",
-        `        field: ${field},`,
-        "        operator: FilterOperator,",
-        '        #[serde(default, skip_serializing_if = "Option::is_none")]',
-        "        value: Option<Value>,",
-        "    },",
-        "    /// Every child must match.",
-        "    And { filters: Vec<Self> },",
-        "    /// Any child may match.",
-        "    Or { filters: Vec<Self> },",
-        "}",
-        "",
-        `impl ${filter} {`,
-        "    /// One comparison on one column; a typed builder is the way a caller reaches this.",
-        ...signature("condition", [`field: ${field}`, "operator: FilterOperator", "value: Option<Value>"], "Self", 4, ""),
-        "        Self::Condition {",
-        "            field,",
-        "            operator,",
-        "            value,",
-        "        }",
-        "    }",
-        "",
-        "    /// One comparison on one column, converting `value` to a bind value.",
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        ...bind,
-        "        Ok(Self::condition(",
-        "            field,",
-        "            operator,",
-        "            Some(value.to_bind_value()?),",
-        "        ))",
-        "    }",
-        "",
-        "    /// Every child must match; an empty group matches everything.",
-        "    #[must_use]",
-        "    pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {",
-        "        Self::And {",
-        "            filters: filters.into_iter().collect(),",
-        "        }",
-        "    }",
-        "",
-        "    /// Any child may match; an empty group matches nothing.",
-        "    #[must_use]",
-        "    pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {",
-        "        Self::Or {",
-        "            filters: filters.into_iter().collect(),",
-        "        }",
-        "    }",
-        "",
-        "    /// The typed filter the planner binds.",
-        "    #[must_use]",
-        "    pub fn into_typed_filter(self) -> TypedFilter {",
-        "        match self {",
-        "            Self::Condition {",
-        "                field,",
-        "                operator,",
-        "                value,",
-        "            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),",
-        "            Self::And { filters } => {",
-        "                let children = filters.into_iter().map(Self::into_typed_filter).collect();",
-        "                TypedFilter::group(Combinator::And, children)",
-        "            }",
-        "            Self::Or { filters } => {",
-        "                let children = filters.into_iter().map(Self::into_typed_filter).collect();",
-        "                TypedFilter::group(Combinator::Or, children)",
-        "            }",
-        "        }",
-        "    }",
-        "}",
     ];
+    for (const field of fields) {
+        lines.push(`    /// A comparison on \`${field.name}\`.`);
+        lines.push(`    ${fieldVariant(field.name)}(${comparisonType(field)}),`);
+    }
+    lines.push("    /// Every child must match.");
+    lines.push("    And(Vec<Self>),");
+    lines.push("    /// Any child may match.");
+    lines.push("    Or(Vec<Self>),");
+    lines.push("}");
+    lines.push("");
+    lines.push(`impl ${filter} {`);
+    lines.push("    /// Every child must match; an empty group matches everything.");
+    lines.push("    #[must_use]");
+    lines.push("    pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {");
+    lines.push("        Self::And(filters.into_iter().collect())");
+    lines.push("    }");
+    lines.push("");
+    lines.push("    /// Any child may match; an empty group matches nothing.");
+    lines.push("    #[must_use]");
+    lines.push("    pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {");
+    lines.push("        Self::Or(filters.into_iter().collect())");
+    lines.push("    }");
+    lines.push("");
+    lines.push("    /// The typed filter the planner binds.");
+    lines.push("    ///");
+    lines.push("    /// # Errors");
+    lines.push("    ///");
+    lines.push("    /// Returns [`ReadError::Encode`] when a value has no JSON form.");
+    lines.push("    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {");
+    lines.push("        match self {");
+    for (const field of fields) {
+        const variant = fieldVariant(field.name);
+        const call = `TypedFilter::comparison(${JSON.stringify(field.name)}, SqlType::${field.sqlType}, comparison)`;
+        const arm = `            Self::${variant}(comparison) => ${call},`;
+        if (arm.length <= MAX_LINE_WIDTH) {
+            lines.push(arm);
+        } else if (`                ${call}`.length <= MAX_LINE_WIDTH) {
+            lines.push(`            Self::${variant}(comparison) => {`);
+            lines.push(`                ${call}`);
+            lines.push("            }");
+        } else {
+            lines.push(`            Self::${variant}(comparison) => TypedFilter::comparison(`);
+            lines.push(`                ${JSON.stringify(field.name)},`);
+            lines.push(`                SqlType::${field.sqlType},`);
+            lines.push("                comparison,");
+            lines.push("            ),");
+        }
+    }
+    lines.push("            Self::And(filters) => Self::group(Combinator::And, filters),");
+    lines.push("            Self::Or(filters) => Self::group(Combinator::Or, filters),");
+    lines.push("        }");
+    lines.push("    }");
+    lines.push("");
+    lines.push("    /// Lower a nested group, keeping each child's column type.");
+    lines.push("    ///");
+    lines.push("    /// # Errors");
+    lines.push("    ///");
+    lines.push("    /// Returns [`ReadError::Encode`] when a child's value has no JSON form.");
+    lines.push("    fn group(combinator: Combinator, filters: Vec<Self>) -> Result<TypedFilter, ReadError> {");
+    lines.push("        let mut typed = Vec::with_capacity(filters.len());");
+    lines.push("        for filter in filters {");
+    lines.push("            typed.push(filter.into_typed_filter()?);");
+    lines.push("        }");
+    lines.push("        Ok(TypedFilter::group(combinator, typed))");
+    lines.push("    }");
+    lines.push("}");
+    return lines;
 }
 
 /** The constant a filter field's builder is reached through, e.g. `tenantId` -> `TENANT_ID`. */
@@ -341,13 +340,20 @@ export function filterBuilderName(entity: string, field: string): string {
     return `${entity}${variantIdentifier(field)}Filter`;
 }
 
-/** The methods a field's filter builder carries, each taking the column's own value type. */
-function filterBuilderMethods(entity: string, field: FilterFieldInfo): string[] {
+/** Render one field's typed builder: the helpers that build its filter variant. */
+function renderFilterBuilder(entity: string, field: FilterFieldInfo): string[] {
+    const name = filterBuilderName(entity, field.name);
     const filter = `${entity}Filter`;
+    const variant = fieldVariant(field.name);
     const value = field.valueType;
-    const method = (name: string, params: string[], returns: string): string[] => signature(name, params, returns, 4);
-
+    const method = (methodName: string, params: string[], returns: string): string[] =>
+        signature(methodName, params, returns, 4);
     return [
+        `/// The \`${field.name}\` filter of \`${entity}\`.`,
+        "#[derive(Clone, Copy, Debug, Eq, PartialEq)]",
+        `pub struct ${name}(${entity}FilterField);`,
+        "",
+        `impl ${name} {`,
         "    /// The column this filter targets.",
         "    #[must_use]",
         `    pub const fn field(self) -> ${entity}FilterField {`,
@@ -355,73 +361,48 @@ function filterBuilderMethods(entity: string, field: FilterFieldInfo): string[] 
         "    }",
         "",
         `    /// \`${field.name} = value\`.`,
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        ...method("eq", ["self", `value: impl Borrow<${value}>`], `Result<${filter}, ReadError>`),
-        `        ${filter}::bind(self.0, FilterOperator::Eq, value.borrow())`,
+        "    #[must_use]",
+        ...method("eq", ["self", `value: impl Borrow<${value}>`], filter),
+        `        ${filter}::${variant}(Comparison::Eq(owned(value.borrow())))`,
         "    }",
         "",
         `    /// \`${field.name} <> value\`.`,
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when the value has no JSON form.",
-        ...method("ne", ["self", `value: impl Borrow<${value}>`], `Result<${filter}, ReadError>`),
-        `        ${filter}::bind(self.0, FilterOperator::Neq, value.borrow())`,
+        "    #[must_use]",
+        ...method("ne", ["self", `value: impl Borrow<${value}>`], filter),
+        `        ${filter}::${variant}(Comparison::Ne(owned(value.borrow())))`,
         "    }",
         "",
         `    /// \`${field.name} = any(values)\`, bound as one array parameter.`,
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when a value has no JSON form.",
+        "    #[must_use]",
         ...method(
             "any",
             ["self", `values: impl IntoIterator<Item = impl Borrow<${value}>>`],
-            `Result<${filter}, ReadError>`,
+            filter,
         ),
-        "        let mut bound = Vec::new();",
-        "        for value in values {",
-        "            bound.push(value.borrow().to_bind_value()?);",
-        "        }",
-        `        Ok(${filter}::condition(`,
-        "            self.0,",
-        "            FilterOperator::Any,",
-        "            Some(Value::Array(bound)),",
+        `        ${filter}::${variant}(Comparison::Any(`,
+        "            values",
+        "                .into_iter()",
+        "                .map(|value| owned(value.borrow()))",
+        "                .collect(),",
         "        ))",
         "    }",
         "",
         `    /// \`${field.name} is null\`.`,
         "    #[must_use]",
         ...method("is_null", ["self"], filter),
-        `        ${filter}::condition(self.0, FilterOperator::IsNull, None)`,
+        `        ${filter}::${variant}(Comparison::IsNull)`,
         "    }",
         "",
         `    /// \`${field.name} is not null\`.`,
         "    #[must_use]",
         ...method("is_not_null", ["self"], filter),
-        `        ${filter}::condition(self.0, FilterOperator::IsNotNull, None)`,
+        `        ${filter}::${variant}(Comparison::IsNotNull)`,
         "    }",
-    ];
-}
-
-/** Render one field's typed filter builder. */
-function renderFilterBuilder(entity: string, field: FilterFieldInfo): string[] {
-    const name = filterBuilderName(entity, field.name);
-    return [
-        `/// The \`${field.name}\` filter of \`${entity}\`.`,
-        "#[derive(Clone, Copy, Debug, Eq, PartialEq)]",
-        `pub struct ${name}(${entity}FilterField);`,
-        "",
-        `impl ${name} {`,
-        ...filterBuilderMethods(entity, field),
         "}",
     ];
 }
 
-/** Render the typed filter builders of every filterable field, plus the constant each is reached through. */
+/** Render the typed builders of every filterable field, plus the constant each is reached through. */
 export function renderFilterBuilders(entity: string, fields: FilterFieldInfo[]): string[] {
     const enumName = `${entity}FilterField`;
     const lines: string[] = [];
@@ -596,19 +577,22 @@ function renderReadOptions(entity: string): string[] {
         "    }",
         "",
         "    /// The source-independent read the crate's planner takes; not part of the public surface.",
-        "    #[must_use]",
-        "    pub(crate) fn into_read_options(self) -> ReadOptions {",
-        "        ReadOptions {",
+        "    ///",
+        "    /// # Errors",
+        "    ///",
+        "    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.",
+        "    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {",
+        "        let mut filters = Vec::with_capacity(self.filters.len());",
+        "        for filter in self.filters {",
+        "            filters.push(filter.into_typed_filter()?);",
+        "        }",
+        "        Ok(ReadOptions {",
         "            columns: self",
         "                .select",
         "                .into_iter()",
         "                .map(|field| field.select())",
         "                .collect(),",
-        "            filters: self",
-        "                .filters",
-        "                .into_iter()",
-        "                .map(|filter| filter.into_typed_filter())",
-        "                .collect(),",
+        "            filters,",
         "            sort: self",
         "                .order",
         "                .into_iter()",
@@ -616,7 +600,7 @@ function renderReadOptions(entity: string): string[] {
         "                .collect(),",
         "            limit: self.limit,",
         "            offset: self.offset,",
-        "        }",
+        "        })",
         "    }",
         "}",
     ];
@@ -631,11 +615,10 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push("use std::borrow::Borrow;");
     lines.push("");
     lines.push("use crate::db::{");
-    lines.push("    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,");
+    lines.push("    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,");
+    lines.push("    decode_rows, owned,");
     lines.push("};");
-    lines.push("use datagrid_query::{");
-    lines.push("    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,");
-    lines.push("};");
+    lines.push("use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};");
     const filters = filterFields(table, spec);
     const modelImports = new Set([`use ${selectTypePath(table)};`, ...filters.flatMap((field) => field.imports)]);
     for (const importLine of [...modelImports].sort()) {
@@ -653,7 +636,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push("");
     lines.push(...renderFilterBuilders(entity, filters));
     lines.push("");
-    lines.push(...renderFilterStruct(entity));
+    lines.push(...renderFilterStruct(entity, filters));
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may order by, from \`@queryOrderBy\`.`);
     lines.push(...fieldEnumDerive());
@@ -677,7 +660,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     } else {
         lines.push(signature);
     }
-    lines.push("    let read = options.into_read_options();");
+    lines.push("    let read = options.into_read_options()?;");
     lines.push(`    read.plan(${JSON.stringify(table.name)}, None)`);
     lines.push("}");
     lines.push("");

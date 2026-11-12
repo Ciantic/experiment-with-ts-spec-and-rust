@@ -44,21 +44,71 @@ name, so it is absent from `WidgetSelectField`. An entity that declares no
 filter or ordering column gets the matching enum with no variants, so a caller
 cannot name one.
 
-Every enum carries `ALL`, `as_str` and `Display`, plus the helpers its
+Every enum carries `ALL`, `as_str`, and `Display`, plus the helpers its
 capability needs:
 
 ```rust
 WidgetSelectField::Notes.select();                          // SelectColumn::Name("notes")
-WidgetFilterField::TENANT_ID.eq(&tenant_id)?;               // "tenantId" = $1, a TenantId
-WidgetFilterField::ID.any([first_id, second_id])?;          // "id" = ANY($1), one array parameter
+WidgetFilterField::TENANT_ID.eq(&tenant_id);                // a WidgetFilter for tenantId
+WidgetFilterField::ID.any([first_id, second_id]);           // "id" = ANY($1)
 WidgetFilterField::DELETED_AT.is_null();                    // "deletedAt" is null
 WidgetOrderField::CreatedAt.desc();                         // "createdAt" DESC
 ```
 
 A filter field is reached through a constant named for its column, and that
-constant returns a builder of the column's own value type. `sql_type()` maps
-the enum variant to the type the driver binds. `WidgetFilter::and(…)` and
-`WidgetFilter::or(…)` nest filters, and each child keeps its own column type.
+constant returns a builder of the column's own value type; `sql_type()` maps the
+enum variant to the type the driver binds. The filter builders are covered under
+"Values".
+
+## Values
+
+A filter is an enum whose variant names the column, and whose payload has that
+column's model type:
+
+```rust
+#[serde(rename_all = "camelCase")]
+pub enum WidgetFilter {
+    Id(Comparison<WidgetId>),
+    TenantId(Comparison<TenantId>),
+    DeletedAt(Comparison<chrono::DateTime<chrono::Utc>>),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+}
+```
+
+`Comparison<T>` is the operator vocabulary over one value type:
+
+```rust
+pub enum Comparison<T> {
+    Eq(T),
+    Ne(T),
+    Any(Vec<T>),
+    IsNull,
+    IsNotNull,
+}
+```
+
+Because the type parameter is the column's own type, a payload cannot carry a
+value the column does not accept: `{"tenantId": {"eq": true}}` fails to
+deserialize, and the message names the expected type. Nothing is coerced and
+nothing has to be checked later.
+
+The builders are the ergonomic route to a variant. `WidgetFilterField::TENANT_ID`
+returns the `TenantId` builder, so `eq` and `ne` take `impl Borrow<TenantId>`
+(a value or a reference to one) and are infallible:
+
+```rust
+WidgetFilterField::TENANT_ID.eq(&tenant_id)                      // { "tenantId": { "eq": "…" } }
+WidgetFilterField::ID.any([first_id, second_id])                 // { "id": { "any": ["…", "…"] } }
+WidgetFilterField::DELETED_AT.is_null()                          // { "deletedAt": "isNull" }
+WidgetFilterField::NOTES.eq("draft")                             // a plain string column
+```
+
+Passing a `CustomerId` to the `TenantId` builder does not compile, and the
+builder cannot reach a column the spec does not mark `@queryFilter`.
+
+`WidgetFilter::and(…)` and `WidgetFilter::or(…)` nest filters; each child keeps
+its own column type:
 
 ```rust
 WidgetFilter::or([
@@ -67,52 +117,11 @@ WidgetFilter::or([
 ])
 ```
 
-## Values
-
-Each filter builder takes that column's model type, so a value of the wrong
-type is a compile error rather than a query that fails at run time:
-
-```rust
-pub struct WidgetTenantIdFilter(WidgetFilterField);
-
-impl WidgetTenantIdFilter {
-    pub fn eq(self, value: impl Borrow<TenantId>) -> Result<WidgetFilter, ReadError>;
-    pub fn ne(self, value: impl Borrow<TenantId>) -> Result<WidgetFilter, ReadError>;
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> Result<WidgetFilter, ReadError>;
-    pub fn is_null(self) -> WidgetFilter;
-    pub fn is_not_null(self) -> WidgetFilter;
-}
-```
-
-`Borrow<T>` accepts the value and a reference to it, so a caller keeps its own
-copy without cloning:
-
-```rust
-WidgetFilterField::TENANT_ID.eq(&tenant_id)?;                // a borrow of a branded id
-WidgetFilterField::AMOUNT.eq(amount)?;                       // a Money
-WidgetFilterField::ID.any([first_id, second_id])?;           // ids, bound as one array
-WidgetFilterField::NOTES.eq("draft")?;                       // a plain string column
-```
-
-The value type comes from the same mapping that writes the models crate
-(`docs/rust-models.md`), so a branded id arrives as its own newtype, a `Date`
-column as `chrono::DateTime<Utc>`, and a `string` column as `String`. Passing a
-`CustomerId` to a `TenantId` filter does not compile.
-
-A value becomes a bind value through the crate's `BindValue`, which any
-`Serialize` type satisfies, so a newtype binds the value it wraps. The
-conversion can only fail when a value has no JSON form, which is why the
-value-carrying methods return `Result<WidgetFilter, ReadError>`; the null tests
-bind nothing and return a `WidgetFilter` directly.
-
-The raw `datagrid_query::Value` never reaches a caller. The filter enum's
-`condition` constructor and the `ReadOptions` lowering are crate-internal, and
-`BindValue` is a crate-internal trait, so the typed builders are the only way
-in: a filter's value is always the column's model type.
-
-The field enums are the validity check: a column the spec does not expose
-cannot be named, so a caller never builds a filter or an ordering the entity
-forbids. A raw column name has no route into a generated read.
+Lowering a filter to the builder's statement happens once, inside the module:
+`WidgetFilter::into_typed_filter` maps each variant to its column name and
+`SqlType` and converts the typed value to a bind parameter. That conversion is
+the only fallible step, and only a value with no JSON form can fail it, so
+`ReadOptions` gains no validation of its own.
 
 ## Read options
 
@@ -139,7 +148,7 @@ The options are built either literally or fluently:
 
 ```rust
 let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
-    .filter(WidgetFilterField::TENANT_ID.eq(&tenant_id)?)
+    .filter(WidgetFilterField::TENANT_ID.eq(&tenant_id))
     .order(WidgetOrderField::CreatedAt.desc().nulls_last())
     .limit(50);
 ```
@@ -166,8 +175,8 @@ the entity's fields lower to them inside the module.
 ## JSON
 
 `WidgetReadOptions` and everything it holds implement `serde::Serialize` and
-`serde::Deserialize`, so a read can cross a boundary — an HTTP query string, a
-cache entry, a test fixture — and come back:
+`serde::Deserialize`, so a read can cross a boundary — an HTTP body, a cache
+entry, a test fixture — and come back:
 
 ```rust
 let json = serde_json::to_string(&options)?;
@@ -175,22 +184,20 @@ let back: WidgetReadOptions = serde_json::from_str(&json)?;
 assert_eq!(back, options);
 ```
 
-A field enum is its column name, so the JSON names the column rather than a Rust
-variant:
+A field enum is its column name, a filter variant is the column it targets, and
+a comparison is the operator:
 
 ```json
 {
   "select": ["id", "number", "totalAmount", "createdAt"],
   "filters": [
-    { "kind": "condition", "field": "tenantId", "operator": "eq", "value": "…" },
-    { "kind": "condition", "field": "id", "operator": "any", "value": ["…", "…"] },
-    {
-      "kind": "or",
-      "filters": [
-        { "kind": "condition", "field": "deletedAt", "operator": "isNull" },
-        { "kind": "condition", "field": "sellerId", "operator": "isNotNull" }
-      ]
-    }
+    { "tenantId": { "eq": "…" } },
+    { "id": { "any": ["…", "…"] } },
+    { "deletedAt": "isNull" },
+    { "or": [
+        { "deletedAt": "isNull" },
+        { "sellerId": "isNotNull" }
+    ] }
   ],
   "order": [{ "field": "createdAt", "direction": "desc", "nulls": "last" }],
   "limit": 25,
@@ -198,24 +205,21 @@ variant:
 }
 ```
 
-Decoding is strict about what the spec allows, because every name in the payload
-is one of the entity's own types:
+Decoding rejects everything the entity's own types do not allow:
 
-- An unknown top-level key, or an unknown key of an ordering clause, is an error.
-- A column the entity does not declare is an error; so is a column that carries
-  no `@queryFilter` in `filters`, or no `@queryOrderBy` in `order`.
-- An operator outside `FilterOperator` is an error, so a payload cannot invent
-  SQL.
+- An unknown key in the options or in an ordering clause is an error.
+- A column the entity does not declare is an error, and so is a column that
+  carries no `@queryFilter` in `filters` or no `@queryOrderBy` in `order`.
+- An operator the filter does not offer is an error, so a payload cannot reach a
+  comparison the spec does not allow.
+- A value of the wrong type is an error at decode: `{"tenantId": {"eq": true}}`
+  fails because a `TenantId` is not a boolean. Nothing is coerced and no
+  separate validation pass is needed.
 
 Every part of the shape is optional: `{}` reads every column of every row. An
 empty collection and an omitted one mean the same thing, so a round-trip drops
 `"select": []` rather than writing it. An ordering clause may omit `direction`,
 which reads as `asc`.
-
-A decoded value is bound by its column's type, the same as a value the typed
-builder supplied: an `operator` and `value` that do not fit the column — say a
-boolean for a `uuid` column — is reported as `ReadError::InvalidValue` when the
-statement runs, not silently coerced.
 
 ## Planned parameters
 

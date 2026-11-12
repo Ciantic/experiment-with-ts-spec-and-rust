@@ -23,7 +23,16 @@ const spec = parseInMemorySpec(
         {
             filePath: join(SPEC_SRC_ROOT, "fixtures.ts"),
             sourceFileText: `
+/**
+ * @primitive
+ * @pgType uuid
+ */
 export type InvoiceId = string;
+
+/**
+ * @primitive
+ * @pgType uuid
+ */
 export type TenantId = string;
 
 /**
@@ -34,9 +43,12 @@ export type TenantId = string;
 export interface Invoice {
     /** @primaryKey */
     id: InvoiceId;
+    /** @queryFilter */
     tenantId: TenantId;
     number?: string;
     updatedAt: Date;
+    /** @queryFilter */
+    deletedAt?: Date;
     customerName: string;
 }
 
@@ -80,6 +92,7 @@ const invoice = table(
         column("tenantId", { sqlType: "uuid", queryFilter: { required: false } }),
         column("number", { queryOrder: { default: "asc" } }),
         column("updatedAt", { sqlType: "timestamptz", queryOrder: {} }),
+        column("deletedAt", { sqlType: "timestamptz", notNull: false, queryFilter: { required: false } }),
         column("customerName"),
     ],
     new Map([["snapshot", { kind: "inlined", table: "customer", columns: { name: "customerName" } }]]),
@@ -114,7 +127,7 @@ describe("sqlTypeVariant", () => {
 
 describe("selectableFields", () => {
     it("keeps every column a branch does not own", () => {
-        expect(selectableFields(invoice)).toEqual(["id", "tenantId", "number", "updatedAt"]);
+        expect(selectableFields(invoice)).toEqual(["id", "tenantId", "number", "updatedAt", "deletedAt"]);
     });
 });
 
@@ -142,9 +155,9 @@ describe("renderQueryModule", () => {
     it("converts the typed selection and ordering to the builder's own types", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub(crate) fn into_read_options(self) -> ReadOptions {");
+        expect(code).toContain("pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {");
         expect(code).toContain(".map(|field| field.select())");
-        expect(code).toContain(".map(|filter| filter.into_typed_filter())");
+        expect(code).toContain("filters.push(filter.into_typed_filter()?);");
         expect(code).toContain(".map(|order| order.into_sort())");
         expect(code).toContain('read.plan("invoice", None)');
     });
@@ -162,62 +175,61 @@ describe("renderQueryModule", () => {
 
         expect(code).toContain("pub const fn sql_type(self) -> SqlType {");
         expect(code).toContain("Self::TenantId => SqlType::Uuid,");
-        expect(code).toContain(
-            "} => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),",
-        );
+        expect(code).toContain('"tenantId"');
+        expect(code).toContain("SqlType::Uuid");
+        expect(code).toContain("TypedFilter::comparison(");
     });
 
-    it("takes each field's own model type, so a mismatched value cannot compile", () => {
+    it("makes each filter variant carry its column's model type", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub const ID: InvoiceIdFilter = InvoiceIdFilter(Self::Id);");
+        expect(code).toContain("pub enum InvoiceFilter {");
+        expect(code).toContain("    Id(Comparison<InvoiceId>),");
+        expect(code).toContain("    TenantId(Comparison<TenantId>),");
+        expect(code).toContain("DeletedAt(Comparison<chrono::DateTime<chrono::Utc>>),");
+        expect(code).toContain('#[serde(rename_all = "camelCase")]');
+    });
+
+    it("reaches a variant through that column's typed builder", () => {
+        const code = renderQueryModule(invoice, spec);
+
         expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter(Self::TenantId);");
-        expect(code).toContain("pub fn eq(self, value: impl Borrow<InvoiceId>) -> Result<InvoiceFilter, ReadError> {");
-        expect(code).toContain("pub fn eq(self, value: impl Borrow<TenantId>) -> Result<InvoiceFilter, ReadError> {");
-        expect(code).toContain("values: impl IntoIterator<Item = impl Borrow<TenantId>>,");
-        expect(code).toContain("use models::domain::fixtures::TenantId;");
+        expect(code).toContain("pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceFilter {");
+        expect(code).toContain("InvoiceFilter::TenantId(Comparison::Eq(owned(value.borrow())))");
+        expect(code).toContain(".map(|value| owned(value.borrow()))");
     });
 
-    it("accepts a value or a borrow of it", () => {
+    it("builds a value-carrying filter without a Result, since the type is checked on decode", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("use std::borrow::Borrow;");
-        expect(code).toContain("value.borrow()");
-        expect(code).toContain("value.borrow().to_bind_value()?");
+        expect(code).toContain("pub fn eq(self, value: impl Borrow<InvoiceId>) -> InvoiceFilter {");
+        expect(code).not.toContain("pub fn eq(self, value: impl Borrow<InvoiceId>) -> Result<");
     });
 
-    it("leaves no route from a raw datagrid value to a filter", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        // The constructor and the lowering method are the module's own, not a caller's.
-        expect(code).toContain("    fn condition(");
-        expect(code).not.toContain("    pub fn condition(");
-        expect(code).toContain("pub(crate) fn into_read_options(self) -> ReadOptions {");
-    });
-
-    it("keeps a null test infallible, since it binds no value", () => {
+    it("keeps a null test as its own comparison variant", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn is_null(self) -> InvoiceFilter {");
-        expect(code).toContain("InvoiceFilter::condition(self.0, FilterOperator::IsNull, None)");
+        expect(code).toContain("InvoiceFilter::DeletedAt(Comparison::IsNull)");
     });
 
     it("keeps a raw column name out of the caller's filters", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub enum InvoiceFilter {");
-        expect(code).toContain("        field: InvoiceFilterField,");
         expect(code).not.toContain("    pub filters: Vec<TypedFilter>,");
         expect(code).not.toContain("pub fn filter(mut self, filter: TypedFilter) -> Self");
+        expect(code).not.toContain("pub fn condition(");
     });
 
     it("groups filters with and / or, each child keeping its column type", () => {
         const code = renderQueryModule(invoice, spec);
 
+        expect(code).toContain("    And(Vec<Self>),");
+        expect(code).toContain("    Or(Vec<Self>),");
         expect(code).toContain("pub fn and(filters: impl IntoIterator<Item = Self>) -> Self");
         expect(code).toContain("pub fn or(filters: impl IntoIterator<Item = Self>) -> Self");
-        expect(code).toContain("TypedFilter::group(Combinator::And, children)");
-        expect(code).toContain("TypedFilter::group(Combinator::Or, children)");
+        expect(code).toContain("Self::And(filters) => Self::group(Combinator::And, filters),");
     });
 
     it("serializes each field enum as its column name", () => {
@@ -239,12 +251,12 @@ describe("renderQueryModule", () => {
         expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]\n    pub limit: Option<u64>,');
     });
 
-    it("tags a filter by kind, so a group and a condition share one shape", () => {
+    it("tags each filter variant by its column, so a group and a condition share one enum", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain('#[serde(tag = "kind", rename_all = "camelCase")]');
-        expect(code).toContain("    And { filters: Vec<Self> },");
-        expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]');
+        expect(code).toContain('#[serde(rename_all = "camelCase")]\npub enum InvoiceFilter {');
+        expect(code).toContain("    And(Vec<Self>),");
+        expect(code).toContain("    Or(Vec<Self>),");
     });
 
     it("serializes an ordering clause with a defaulted direction", () => {

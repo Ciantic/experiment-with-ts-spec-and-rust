@@ -3,11 +3,10 @@
 use std::borrow::Borrow;
 
 use crate::db::{
-    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,
+    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,
+    decode_rows, owned,
 };
-use datagrid_query::{
-    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,
-};
+use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};
 use models::domain::invoicing_service::translation::TranslationSelect;
 
 /// A column of `Translation` a read may select.
@@ -118,53 +117,38 @@ impl TranslationLangFilter {
     }
 
     /// `lang = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<String>) -> Result<TranslationFilter, ReadError> {
-        TranslationFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `lang <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<String>) -> Result<TranslationFilter, ReadError> {
-        TranslationFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `lang = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<String>>,
-    ) -> Result<TranslationFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(TranslationFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<String>>) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `lang is null`.
     #[must_use]
     pub fn is_null(self) -> TranslationFilter {
-        TranslationFilter::condition(self.0, FilterOperator::IsNull, None)
+        TranslationFilter::Lang(Comparison::IsNull)
     }
 
     /// `lang is not null`.
     #[must_use]
     pub fn is_not_null(self) -> TranslationFilter {
-        TranslationFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        TranslationFilter::Lang(Comparison::IsNotNull)
     }
 }
 
@@ -180,139 +164,95 @@ impl TranslationKeyFilter {
     }
 
     /// `key = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<String>) -> Result<TranslationFilter, ReadError> {
-        TranslationFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `key <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<String>) -> Result<TranslationFilter, ReadError> {
-        TranslationFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `key = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<String>>,
-    ) -> Result<TranslationFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(TranslationFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<String>>) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `key is null`.
     #[must_use]
     pub fn is_null(self) -> TranslationFilter {
-        TranslationFilter::condition(self.0, FilterOperator::IsNull, None)
+        TranslationFilter::Key(Comparison::IsNull)
     }
 
     /// `key is not null`.
     #[must_use]
     pub fn is_not_null(self) -> TranslationFilter {
-        TranslationFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        TranslationFilter::Key(Comparison::IsNotNull)
     }
 }
 
-/// A filter over `Translation`: one comparison on a `TranslationFilterField`, or a group of them.
-/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+/// A filter over `Translation`: a comparison on one of its columns, or a group of them.
+/// The read's filters are combined with `and`. Each variant's value has that column's model type,
+/// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
 #[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum TranslationFilter {
-    /// One comparison on one column.
-    Condition {
-        field: TranslationFilterField,
-        operator: FilterOperator,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        value: Option<Value>,
-    },
+    /// A comparison on `lang`.
+    Lang(Comparison<String>),
+    /// A comparison on `key`.
+    Key(Comparison<String>),
     /// Every child must match.
-    And { filters: Vec<Self> },
+    And(Vec<Self>),
     /// Any child may match.
-    Or { filters: Vec<Self> },
+    Or(Vec<Self>),
 }
 
 impl TranslationFilter {
-    /// One comparison on one column; a typed builder is the way a caller reaches this.
-    fn condition(
-        field: TranslationFilterField,
-        operator: FilterOperator,
-        value: Option<Value>,
-    ) -> Self {
-        Self::Condition {
-            field,
-            operator,
-            value,
-        }
-    }
-
-    /// One comparison on one column, converting `value` to a bind value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    fn bind(
-        field: TranslationFilterField,
-        operator: FilterOperator,
-        value: impl BindValue,
-    ) -> Result<Self, ReadError> {
-        Ok(Self::condition(
-            field,
-            operator,
-            Some(value.to_bind_value()?),
-        ))
-    }
-
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And {
-            filters: filters.into_iter().collect(),
-        }
+        Self::And(filters.into_iter().collect())
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or {
-            filters: filters.into_iter().collect(),
-        }
+        Self::Or(filters.into_iter().collect())
     }
 
     /// The typed filter the planner binds.
-    #[must_use]
-    pub fn into_typed_filter(self) -> TypedFilter {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
         match self {
-            Self::Condition {
-                field,
-                operator,
-                value,
-            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::And, children)
-            }
-            Self::Or { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::Or, children)
-            }
+            Self::Lang(comparison) => TypedFilter::comparison("lang", SqlType::Text, comparison),
+            Self::Key(comparison) => TypedFilter::comparison("key", SqlType::Text, comparison),
+            Self::And(filters) => Self::group(Combinator::And, filters),
+            Self::Or(filters) => Self::group(Combinator::Or, filters),
         }
+    }
+
+    /// Lower a nested group, keeping each child's column type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a child's value has no JSON form.
+    fn group(combinator: Combinator, filters: Vec<Self>) -> Result<TypedFilter, ReadError> {
+        let mut typed = Vec::with_capacity(filters.len());
+        for filter in filters {
+            typed.push(filter.into_typed_filter()?);
+        }
+        Ok(TypedFilter::group(combinator, typed))
     }
 }
 
@@ -456,19 +396,22 @@ impl TranslationReadOptions {
     }
 
     /// The source-independent read the crate's planner takes; not part of the public surface.
-    #[must_use]
-    pub(crate) fn into_read_options(self) -> ReadOptions {
-        ReadOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.
+    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {
+        let mut filters = Vec::with_capacity(self.filters.len());
+        for filter in self.filters {
+            filters.push(filter.into_typed_filter()?);
+        }
+        Ok(ReadOptions {
             columns: self
                 .select
                 .into_iter()
                 .map(|field| field.select())
                 .collect(),
-            filters: self
-                .filters
-                .into_iter()
-                .map(|filter| filter.into_typed_filter())
-                .collect(),
+            filters,
             sort: self
                 .order
                 .into_iter()
@@ -476,7 +419,7 @@ impl TranslationReadOptions {
                 .collect(),
             limit: self.limit,
             offset: self.offset,
-        }
+        })
     }
 }
 
@@ -486,7 +429,7 @@ impl TranslationReadOptions {
 ///
 /// Returns [`ReadError::Build`] when the options do not form a valid statement.
 pub fn build_query_translation(options: TranslationReadOptions) -> Result<PlannedQuery, ReadError> {
-    let read = options.into_read_options();
+    let read = options.into_read_options()?;
     read.plan("translation", None)
 }
 

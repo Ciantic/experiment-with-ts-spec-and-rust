@@ -3,6 +3,7 @@ use datagrid_query::{
     SelectColumn, Sort, Value,
 };
 
+use super::comparison::Comparison;
 use super::sql_type::SqlType;
 
 /// One bind parameter: the value the caller supplied, and the column type it is compared with.
@@ -61,6 +62,32 @@ impl TypedFilter {
                 value,
             },
         }
+    }
+
+    /// Turn a column's typed comparison into the builder's condition.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::ReadError::Encode`] when a value has no JSON form.
+    pub(crate) fn comparison<T: super::BindValue>(
+        column: &str,
+        sql_type: SqlType,
+        comparison: Comparison<T>,
+    ) -> Result<Self, super::ReadError> {
+        let (operator, value) = match comparison {
+            Comparison::Eq(value) => (FilterOperator::Eq, Some(value.to_bind_value()?)),
+            Comparison::Ne(value) => (FilterOperator::Neq, Some(value.to_bind_value()?)),
+            Comparison::Any(values) => {
+                let mut bound = Vec::with_capacity(values.len());
+                for value in &values {
+                    bound.push(value.to_bind_value()?);
+                }
+                (FilterOperator::Any, Some(Value::Array(bound)))
+            }
+            Comparison::IsNull => (FilterOperator::IsNull, None),
+            Comparison::IsNotNull => (FilterOperator::IsNotNull, None),
+        };
+        Ok(Self::condition(column, sql_type, operator, value))
     }
 
     /// A nested `and` / `or` group.

@@ -3,11 +3,10 @@
 use std::borrow::Borrow;
 
 use crate::db::{
-    BindValue, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter, decode_rows,
+    Comparison, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,
+    decode_rows, owned,
 };
-use datagrid_query::{
-    Combinator, FilterOperator, NullsOrder, SelectColumn, Sort, SortDirection, Value,
-};
+use datagrid_query::{Combinator, NullsOrder, SelectColumn, Sort, SortDirection};
 use models::domain::invoicing_service::customer::CustomerId;
 use models::domain::invoicing_service::customer::CustomerSelect;
 use models::domain::user_service::tenant::TenantId;
@@ -156,53 +155,38 @@ impl CustomerIdFilter {
     }
 
     /// `id = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<CustomerId>) -> Result<CustomerFilter, ReadError> {
-        CustomerFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<CustomerId>) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `id <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<CustomerId>) -> Result<CustomerFilter, ReadError> {
-        CustomerFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<CustomerId>) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `id = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<CustomerId>>,
-    ) -> Result<CustomerFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(CustomerFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<CustomerId>>) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `id is null`.
     #[must_use]
     pub fn is_null(self) -> CustomerFilter {
-        CustomerFilter::condition(self.0, FilterOperator::IsNull, None)
+        CustomerFilter::Id(Comparison::IsNull)
     }
 
     /// `id is not null`.
     #[must_use]
     pub fn is_not_null(self) -> CustomerFilter {
-        CustomerFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        CustomerFilter::Id(Comparison::IsNotNull)
     }
 }
 
@@ -218,139 +202,97 @@ impl CustomerTenantIdFilter {
     }
 
     /// `tenantId = value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn eq(self, value: impl Borrow<TenantId>) -> Result<CustomerFilter, ReadError> {
-        CustomerFilter::bind(self.0, FilterOperator::Eq, value.borrow())
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::Eq(owned(value.borrow())))
     }
 
     /// `tenantId <> value`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub fn ne(self, value: impl Borrow<TenantId>) -> Result<CustomerFilter, ReadError> {
-        CustomerFilter::bind(self.0, FilterOperator::Neq, value.borrow())
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::Ne(owned(value.borrow())))
     }
 
     /// `tenantId = any(values)`, bound as one array parameter.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<TenantId>>,
-    ) -> Result<CustomerFilter, ReadError> {
-        let mut bound = Vec::new();
-        for value in values {
-            bound.push(value.borrow().to_bind_value()?);
-        }
-        Ok(CustomerFilter::condition(
-            self.0,
-            FilterOperator::Any,
-            Some(Value::Array(bound)),
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
         ))
     }
 
     /// `tenantId is null`.
     #[must_use]
     pub fn is_null(self) -> CustomerFilter {
-        CustomerFilter::condition(self.0, FilterOperator::IsNull, None)
+        CustomerFilter::TenantId(Comparison::IsNull)
     }
 
     /// `tenantId is not null`.
     #[must_use]
     pub fn is_not_null(self) -> CustomerFilter {
-        CustomerFilter::condition(self.0, FilterOperator::IsNotNull, None)
+        CustomerFilter::TenantId(Comparison::IsNotNull)
     }
 }
 
-/// A filter over `Customer`: one comparison on a `CustomerFilterField`, or a group of them.
-/// The read's filters are combined with `and`. See docs/rust-queries.md for the JSON shape.
+/// A filter over `Customer`: a comparison on one of its columns, or a group of them.
+/// The read's filters are combined with `and`. Each variant's value has that column's model type,
+/// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
 #[derive(Clone, Debug, serde::Deserialize, PartialEq, serde::Serialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(rename_all = "camelCase")]
 pub enum CustomerFilter {
-    /// One comparison on one column.
-    Condition {
-        field: CustomerFilterField,
-        operator: FilterOperator,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        value: Option<Value>,
-    },
+    /// A comparison on `id`.
+    Id(Comparison<CustomerId>),
+    /// A comparison on `tenantId`.
+    TenantId(Comparison<TenantId>),
     /// Every child must match.
-    And { filters: Vec<Self> },
+    And(Vec<Self>),
     /// Any child may match.
-    Or { filters: Vec<Self> },
+    Or(Vec<Self>),
 }
 
 impl CustomerFilter {
-    /// One comparison on one column; a typed builder is the way a caller reaches this.
-    fn condition(
-        field: CustomerFilterField,
-        operator: FilterOperator,
-        value: Option<Value>,
-    ) -> Self {
-        Self::Condition {
-            field,
-            operator,
-            value,
-        }
-    }
-
-    /// One comparison on one column, converting `value` to a bind value.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    fn bind(
-        field: CustomerFilterField,
-        operator: FilterOperator,
-        value: impl BindValue,
-    ) -> Result<Self, ReadError> {
-        Ok(Self::condition(
-            field,
-            operator,
-            Some(value.to_bind_value()?),
-        ))
-    }
-
     /// Every child must match; an empty group matches everything.
     #[must_use]
     pub fn and(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::And {
-            filters: filters.into_iter().collect(),
-        }
+        Self::And(filters.into_iter().collect())
     }
 
     /// Any child may match; an empty group matches nothing.
     #[must_use]
     pub fn or(filters: impl IntoIterator<Item = Self>) -> Self {
-        Self::Or {
-            filters: filters.into_iter().collect(),
-        }
+        Self::Or(filters.into_iter().collect())
     }
 
     /// The typed filter the planner binds.
-    #[must_use]
-    pub fn into_typed_filter(self) -> TypedFilter {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a value has no JSON form.
+    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
         match self {
-            Self::Condition {
-                field,
-                operator,
-                value,
-            } => TypedFilter::condition(field.as_str(), field.sql_type(), operator, value),
-            Self::And { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::And, children)
+            Self::Id(comparison) => TypedFilter::comparison("id", SqlType::Uuid, comparison),
+            Self::TenantId(comparison) => {
+                TypedFilter::comparison("tenantId", SqlType::Uuid, comparison)
             }
-            Self::Or { filters } => {
-                let children = filters.into_iter().map(Self::into_typed_filter).collect();
-                TypedFilter::group(Combinator::Or, children)
-            }
+            Self::And(filters) => Self::group(Combinator::And, filters),
+            Self::Or(filters) => Self::group(Combinator::Or, filters),
         }
+    }
+
+    /// Lower a nested group, keeping each child's column type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a child's value has no JSON form.
+    fn group(combinator: Combinator, filters: Vec<Self>) -> Result<TypedFilter, ReadError> {
+        let mut typed = Vec::with_capacity(filters.len());
+        for filter in filters {
+            typed.push(filter.into_typed_filter()?);
+        }
+        Ok(TypedFilter::group(combinator, typed))
     }
 }
 
@@ -494,19 +436,22 @@ impl CustomerReadOptions {
     }
 
     /// The source-independent read the crate's planner takes; not part of the public surface.
-    #[must_use]
-    pub(crate) fn into_read_options(self) -> ReadOptions {
-        ReadOptions {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.
+    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {
+        let mut filters = Vec::with_capacity(self.filters.len());
+        for filter in self.filters {
+            filters.push(filter.into_typed_filter()?);
+        }
+        Ok(ReadOptions {
             columns: self
                 .select
                 .into_iter()
                 .map(|field| field.select())
                 .collect(),
-            filters: self
-                .filters
-                .into_iter()
-                .map(|filter| filter.into_typed_filter())
-                .collect(),
+            filters,
             sort: self
                 .order
                 .into_iter()
@@ -514,7 +459,7 @@ impl CustomerReadOptions {
                 .collect(),
             limit: self.limit,
             offset: self.offset,
-        }
+        })
     }
 }
 
@@ -524,7 +469,7 @@ impl CustomerReadOptions {
 ///
 /// Returns [`ReadError::Build`] when the options do not form a valid statement.
 pub fn build_query_customer(options: CustomerReadOptions) -> Result<PlannedQuery, ReadError> {
-    let read = options.into_read_options();
+    let read = options.into_read_options()?;
     read.plan("customer", None)
 }
 
