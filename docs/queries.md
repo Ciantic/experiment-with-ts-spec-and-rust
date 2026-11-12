@@ -11,6 +11,9 @@ See "Why the resolver is hand-written".
   `Order` clause. Hand-written; the resolver and the generated REST client
   import their types from it, so the read contract has one definition. See
   `docs/rest-api.md`.
+- `packages/sdk/src/filters.ts` — generated: one `<Entity>Filter` operator map per
+  entity that declares a read, so the read, its guard, and its client name one
+  definition. `scripts/sdk/generate-filters.ts` writes it.
 - `scripts/infra/generate-queries.ts` — the generator.
 - `packages/infra/src/db/queries/` — generated: `model.ts` (metadata),
   `query<Entity>.ts` (a `query<Entity>` per `@queries` entity),
@@ -47,7 +50,7 @@ There is no query alias to write. The generator walks the tables and emits
 export function queryWidget<S extends Selection<Widget>>(
     db: SqlExecutor,
     opts: {
-        filters?: Filters<Widget, { id: "eq"; tenantId: "eq"; accountId: "eq"; startsAt: "gte" | "lte" }>;
+        filters?: Filters<Widget, WidgetFilter>;
         order?: Order<"createdAt" | "updatedAt">[];
         limit?: number;
         offset?: number;
@@ -144,7 +147,9 @@ const widgets = await queryWidget(db, {
 ```
 
 The generated type restricts each entry to the columns its `@queryFilter` marks
-and, per column, to the operators its `ops=` names:
+and, per column, to the operators its `ops=` names. Each entity's map is its own
+generated type, `WidgetFilter`, so a read, its route guard, and its client all
+name one definition rather than repeating it:
 
 ```ts
 export type Filter<E, O extends FilterOps<E>> = {
@@ -154,6 +159,14 @@ export type Filter<E, O extends FilterOps<E>> = {
 };
 
 export type Filters<E, O extends FilterOps<E>> = readonly Filter<E, O>[];
+
+/** The comparisons a filter over `Widget` may name, one entry per `@queryFilter` column. */
+export type WidgetFilter = {
+    id: "eq";
+    tenantId: "eq";
+    accountId: "eq";
+    startsAt: "gte" | "lte" | "between";
+};
 ```
 
 An entry that names a column the entity does not mark, or an operator that column

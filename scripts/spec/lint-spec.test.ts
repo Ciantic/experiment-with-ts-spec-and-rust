@@ -2756,6 +2756,38 @@ describe("tenancy tags", () => {
         expect(findings).toEqual([]);
     });
 
+    it("requires the tenant column of a read to be a filter, which the query guard reads", () => {
+        const unfiltered = field(
+            ["@fieldName Owner ID", "@widget text", "@foreignKey Alpha"],
+            "ownerId: string;",
+        );
+        const { findings } = lintSpec(
+            parse({
+                "/src/domain/Alpha.ts": root,
+                "/src/domain/Thing.ts": entity("Thing", ["tenantOwned ownerId", "queries query"], `${key}\n\n${unfiltered}`),
+            }),
+        );
+
+        expect(messages(findings)).toEqual([
+            "`Thing`: @tenantOwned names `ownerId`, which its `query` needs as a filter; write `@queryFilter` there",
+        ]);
+    });
+
+    it("accepts a read whose tenant column is a filter", () => {
+        const { findings } = lintSpec(
+            parse({
+                "/src/domain/Alpha.ts": root,
+                "/src/domain/Thing.ts": entity(
+                    "Thing",
+                    ["tenantOwned ownerId", "queries query"],
+                    `${key}\n\n${ownedLink("Alpha")}`,
+                ),
+            }),
+        );
+
+        expect(findings).toEqual([]);
+    });
+
     it("accepts a reference to an owned interface, which states the same scope", () => {
         const { findings } = lintSpec(
             parse({

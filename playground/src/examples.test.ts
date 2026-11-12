@@ -70,7 +70,7 @@ export function examples(getHttp: () => ApiClient): void {
                 api.createInvoice([invoice]),
                 invoiceRows.createInvoiceRow([invoiceRow]),
                 api.queryInvoice({
-                    filter: { id: [invoiceId] },
+                    filters: [{ id: { eq: invoiceId } }],
                     select: { id: true, number: true, netAmount: true, taxAmount: true },
                 }),
             ),

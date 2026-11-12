@@ -2,6 +2,7 @@
 import { loadSpec, type SpecModel } from "./spec/spec-model.ts";
 import { run as runLint } from "./spec/lint-spec.ts";
 import { run as runPermissions } from "./sdk/generate-permissions.ts";
+import { run as runFilters } from "./sdk/generate-filters.ts";
 import { run as runPostgresSchema } from "./infra/generate-postgres-schema.ts";
 import { run as runRepositories } from "./infra/generate-repositories.ts";
 import { run as runQueries } from "./infra/generate-queries.ts";
@@ -27,6 +28,7 @@ const spec = loadSpec();
 const steps: Step[] = [
     runLint,
     runPermissions,
+    runFilters,
     runErrors,
     runOperations,
     runOperationGuards,

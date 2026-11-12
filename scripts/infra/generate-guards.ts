@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "nod
 import { join } from "node:path";
 import { INFRA_PACKAGE_ROOT } from "../paths.ts";
 import { loadSpec, type DeclaredType, type SpecModel } from "../spec/spec-model.ts";
+import { filterTypeName } from "../sdk/generate-filters.ts";
 import {
     buildRestModel,
     type RestEntity,
@@ -27,6 +28,8 @@ const INDEX_FILE = "index.ts";
 const FORBIDDEN_IMPORT = "sdk/errors.ts";
 const ROUTER_IMPORT = "../router.ts";
 const SCHEMAS_IMPORT = "sdk/schemas.ts";
+const SELECTION_IMPORT = "sdk/selection.ts";
+const FILTERS_IMPORT = "sdk/filters.ts";
 const LOOKUPS_IMPORT = "../../db/queries/index.ts";
 
 /** `queryInvoice` -> `canQueryInvoice`. */
@@ -55,27 +58,23 @@ const CHECKS: Record<RestKind, string> = {
 /** The kinds whose body resolves a stored row's tenant through the entity's generated lookup. */
 const LOOKUP_KINDS: ReadonlySet<RestKind> = new Set<RestKind>(["watch", "upsert", "update", "delete"]);
 
-/** The argument type a guard receives, the imports it needs, and whether it names the entity itself. */
+/** The argument type a guard receives and the types it imports: a payload, a tenant, or the read's filter map. */
 export function argumentType(
     entity: RestEntity,
     kind: RestKind,
     field: string,
     tenantType?: DeclaredType,
-    optional = false,
-): { type: string; payload?: string; importSpecifier?: string } {
+): { type: string; payload?: string; importSpecifier?: string; filterType?: string } {
     const name = entity.entity;
     // A field typed by an alias is named as such; an unresolved shape still reads through the entity.
     const tenant = tenantType?.name ?? `${name}[${JSON.stringify(field)}]`;
     const importSpecifier = tenantType?.importSpecifier ?? (tenantType === undefined ? entity.importSpecifier : undefined);
-    // A nullable tenant filter also accepts the generated null tests, which name no tenant.
-    const filter = optional
-        ? `readonly ${tenant}[] | { readonly isNull: true } | { readonly isNotNull: true }`
-        : `readonly ${tenant}[]`;
     switch (kind) {
         case "query":
+            // The read's own filter list, over the shared map, so the guard accepts exactly what the route validates.
             return {
-                type: `{ filter?: { ${field}?: ${filter} | undefined } | undefined }`,
-                ...(importSpecifier === undefined ? {} : { importSpecifier }),
+                type: `{ filters?: readonly Filter<${name}, ${filterTypeName(name)}>[] | undefined }`,
+                filterType: filterTypeName(name),
             };
         case "watch":
             return {
@@ -120,6 +119,36 @@ function checkLines(scope: string, action: string, optional: boolean, emptyMessa
     return lines;
 }
 
+/** The tenants a read's filter list names: one comparison per entry, so each entry is read on its own. */
+function queryTenantLines(entity: RestEntity, field: string): string[] {
+    const operators = entity.whereFields.find((candidate) => candidate.name === field)?.operators ?? [];
+    // `Filter` compares the column's non-null type, so an optional owner's set holds the id, never `undefined`.
+    const tenant = `NonNullable<${entity.entity}[${JSON.stringify(field)}]>`;
+    const lines = [
+        `    const tenants = new Set<${tenant}>();`,
+        "    for (const filter of argument.filters ?? []) {",
+        `        const comparison = filter.${field};`,
+        "        if (comparison === undefined) {",
+        "            continue;",
+        "        }",
+    ];
+    // Only the equality and membership operators name a tenant; a range, a pattern, or a null test cannot.
+    if (operators.includes("eq")) {
+        lines.push("        if (comparison.eq !== undefined) {", "            tenants.add(comparison.eq);", "        }");
+    }
+    for (const operator of ["in", "any"] as const) {
+        if (operators.includes(operator)) {
+            lines.push(
+                `        for (const value of comparison.${operator} ?? []) {`,
+                "            tenants.add(value);",
+                "        }",
+            );
+        }
+    }
+    lines.push("    }");
+    return lines;
+}
+
 /** The lines that gather the tenants a call addresses, before {@link checkLines} refuses it. */
 function tenantLines(
     entity: RestEntity,
@@ -130,13 +159,7 @@ function tenantLines(
 ): string[] {
     switch (kind) {
         case "query":
-            // A null test names no tenant, so it reaches the global permission the guard asks for first.
-            return optional
-                ? [
-                      `    const filtered = argument.filter?.${field};`,
-                      "    const tenants = new Set(Array.isArray(filtered) ? filtered : []);",
-                  ]
-                : [`    const tenants = new Set(argument.filter?.${field});`];
+            return queryTenantLines(entity, field);
         case "watch":
             return [
                 `    const filtered = argument?.filter?.${field};`,
@@ -202,9 +225,14 @@ export function renderGuardModule(
     // A delete names the tenant only through its lookup, so it reads no field from the argument.
     const owned = entity.tenantOwned;
     const field = operation.kind !== "delete" ? owned.field : undefined;
-    const argument = argumentType(entity, operation.kind, field ?? owned.field, tenantType, owned.optional);
+    const argument = argumentType(entity, operation.kind, field ?? owned.field, tenantType);
     const lookup = LOOKUP_KINDS.has(operation.kind) ? `get${entity.entity}Tenants` : undefined;
-    if (argument.importSpecifier !== undefined) {
+    // A read's argument is the query read's own filter list, which names both the entity and `Filter`.
+    if (argument.filterType !== undefined) {
+        lines.push(`import type { ${argument.filterType} } from "${FILTERS_IMPORT}";`);
+        lines.push(`import type { Filter } from "${SELECTION_IMPORT}";`);
+        lines.push(`import type { ${entity.entity} } from "${entity.importSpecifier}";`);
+    } else if (argument.importSpecifier !== undefined) {
         lines.push(`import type { ${tenantType?.name ?? entity.entity} } from "${argument.importSpecifier}";`);
     }
     if (argument.payload !== undefined) {

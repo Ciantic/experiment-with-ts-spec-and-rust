@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { INFRA_PACKAGE_ROOT } from "../paths.ts";
+import { filterTypeName } from "../sdk/generate-filters.ts";
 import { TRIGGER_EVENTS, loadSpec, lowerFirst, type DeclaredType, type FilterDefault, type SpecModel, type TriggerEvent } from "../spec/spec-model.ts";
 import {
     buildSpecTables,
@@ -153,12 +154,6 @@ function filterKeys(filters: string[]): string {
     return filters.map((name) => JSON.stringify(name)).join(" | ");
 }
 
-/** The operator map a `Filters` takes: `{ issueDate: "gte" | "lte" }`. */
-function whereType(fields: { name: string; operators: string[] }[]): string {
-    const entries = fields.map((field) => `${field.name}: ${filterKeys(field.operators)}`);
-    return `{ ${entries.join("; ")} }`;
-}
-
 /** Render one entity's query function. */
 export function renderQueryModule(entity: string, table: Table): string {
     const order = orderFields(table);
@@ -173,6 +168,9 @@ export function renderQueryModule(entity: string, table: Table): string {
         selectionTypes.push("Order");
     }
     selectionTypes.sort((a, b) => a.localeCompare(b));
+    if (where.length > 0) {
+        lines.push(`import type { ${filterTypeName(entity)} } from "sdk/filters.ts";`);
+    }
     lines.push(`import type { ${selectionTypes.join(", ")} } from "sdk/selection.ts";`);
     lines.push('import type { SqlExecutor } from "../sql-executor.ts";');
     lines.push('import { createResolver } from "../resolvers.ts";');
@@ -182,7 +180,7 @@ export function renderQueryModule(entity: string, table: Table): string {
     lines.push("");
     lines.push(`/** Query \`${entity}\` rows over the filters it carries, combined with and. */`);
     lines.push(
-        `export function query${entity}<S extends Selection<${entity}>>(db: SqlExecutor, opts: ${queryOptsType(entity, order, where)}): Promise<Selected<${entity}, S>[]> {`,
+        `export function query${entity}<S extends Selection<${entity}>>(db: SqlExecutor, opts: ${queryOptsType(entity, order, where.length > 0)}): Promise<Selected<${entity}, S>[]> {`,
     );
     const resolverOpts =
         (where.length > 0 ? "filters: opts.filters, " : "") +
@@ -196,15 +194,11 @@ export function renderQueryModule(entity: string, table: Table): string {
 }
 
 /** The `query` options: the filters, ordering, and paging, plus the selection. */
-function queryOptsType(
-    entity: string,
-    order: string[],
-    where: { name: string; operators: string[] }[],
-): string {
+function queryOptsType(entity: string, order: string[], filtered: boolean): string {
     const parts: string[] = [];
-    if (where.length > 0) {
-        // Every filterable column is one entry of the list, so the list itself is what may be left out.
-        parts.push(`filters?: Filters<${entity}, ${whereType(where)}>`);
+    if (filtered) {
+        // The shared map names every filterable column, so the list itself is what may be left out.
+        parts.push(`filters?: Filters<${entity}, ${filterTypeName(entity)}>`);
     }
     if (order.length > 0) {
         parts.push(`order?: Order<${filterKeys(order)}>[]`);

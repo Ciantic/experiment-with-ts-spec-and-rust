@@ -14,6 +14,7 @@
     "lint:oxlint": "oxlint",
     "generate": "node scripts/generate.ts",
     "generate:permissions": "node scripts/sdk/generate-permissions.ts",
+    "generate:filters": "node scripts/sdk/generate-filters.ts",
     "generate:schema": "node scripts/infra/generate-postgres-schema.ts",
     "generate:schema:stdout": "node scripts/infra/generate-postgres-schema.ts --stdout",
     "generate:repositories": "node scripts/infra/generate-repositories.ts",

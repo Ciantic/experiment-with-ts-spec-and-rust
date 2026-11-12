@@ -91,10 +91,12 @@ and with it the call may address tenanted and unowned rows alike. See
 
 ## Reads: the tenant filter
 
-Marking `tenantId` a filter makes a read able to name it; the route guard is what
-requires it, so a read cannot list another tenant's rows by omitting it. `Tenant`,
-`Locale`, and `LogEntry` have no `tenantId` and so nothing to scope; a read of
-them is unscoped. See `docs/queries.md`.
+Marking `tenantId` a filter makes a read able to name it, and the query guard is
+what checks the tenants it does name; a read that names none falls to the global
+permission. `Tenant`, `Locale`, and `LogEntry` have no `tenantId` and so nothing to
+scope; a read of them is unscoped. Every `query` on an owned interface needs that
+tag, because the filters are where a read names its tenant, and the linter reports
+one that omits it. See `docs/queries.md`.
 
 On an optional owner the filter value may also be a null test: a nullable column
 takes one, so `filters: [{ tenantId: { isNull: true } }]` reads the rows that

@@ -221,14 +221,14 @@ describe("renderClientModule", () => {
 
     it("narrows the filters to the filterable fields, requiring the required ones", () => {
         expect(widgetModule()).toContain(
-            'filters?: Filters<Widget, { id: "eq"; size: "eq"; tenantId: "eq"; amount: "gte" | "lte" }>',
+            'filters?: Filters<Widget, WidgetFilter>',
         );
     });
 
     it("leaves the filters optional when the entity requires none", () => {
         const marker = model.entities.find((entity) => entity.entity === "Marker");
 
-        expect(renderClientModule(marker!)).toContain('filters?: Filters<Marker, { id: "eq" }>');
+        expect(renderClientModule(marker!)).toContain('filters?: Filters<Marker, MarkerFilter>');
     });
 
     it("narrows the ordering to the orderable fields", () => {
@@ -249,7 +249,7 @@ describe("renderClientModule", () => {
     it("narrows the comparisons to the whitelisted operators", () => {
         const code = widgetModule();
 
-        expect(code).toContain('filters?: Filters<Widget, { id: "eq"; size: "eq"; tenantId: "eq"; amount: "gte" | "lte" }>');
+        expect(code).toContain('filters?: Filters<Widget, WidgetFilter>');
         expect(code).toContain('import type { Filters, Order, Selected, Selection } from "../selection.ts";');
     });
 

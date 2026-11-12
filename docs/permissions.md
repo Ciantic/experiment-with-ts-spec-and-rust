@@ -158,7 +158,7 @@ export const canCreateTenant: RouteGuard = async (ctx) => {
 
 | Route | Tenants the module checks |
 | --- | --- |
-| `query` | every tenant the filter names |
+| `query` | every tenant the read's `filters` name |
 | `create` | every inserted row's tenant |
 | `watchAll` | the filter tenant, or the global permission when it names none |
 | `watchRows` | the filter tenant, or the tenant of every key named |
@@ -168,24 +168,27 @@ export const canCreateTenant: RouteGuard = async (ctx) => {
 
 The tenant field is the entity's `@tenantOwned` field, written into the module as
 a literal; a delete reads no tenant from its argument, so it names only the
-lookup. A read and a create take the tenant from the argument and need no lookup.
+lookup. A `query` needs that field to carry `@queryFilter`, because the filters
+are the only place a read names a tenant; the linter reports one that does not. A read and a create take the tenant from the argument and need no lookup.
 A route that addresses a stored row calls the entity's generated
 `get<Entity>Tenants` directly; the module never builds SQL itself.
 
 The argument type is the route's schema type: `InvoiceInsert`, `InvoicePatch`,
-`InvoiceUpsert`, or `InvoicePrimaryKey` for a write, and a filter for a read whose
-tenant names the `@tenant` root's primary-key type. The parser resolves that type
-once into `SpecModel.tenantIdType` — `TenantId` from `spec/user-service/Tenant.ts`,
-say — so the guard reads `filter?.tenantId` or `row.tenantId` without indexing the
-entity.
+`InvoiceUpsert`, or `InvoicePrimaryKey` for a write, and `Filters<Invoice,
+InvoiceFilter>` for a `query` — the same types the generated read and client take.
+`InvoiceFilter` is the entity's generated operator map (`sdk/filters.ts`), so the
+guard, the read, and the client share one definition rather than repeating the
+operator union. A tenant column's own type comes from `Filter`, and the parser
+resolves the root's key once into `SpecModel.tenantIdType` — `TenantId` from
+`spec/user-service/Tenant.ts`, say — so no module indexes the entity by hand.
 
 Every module is plain TypeScript over the parsed argument, with no shared guard
-helper: a read's filter names its tenant as a set, so the module spreads
-`filter?.tenantId`; a row names its tenant as one value, so the module reads
-`row.tenantId`; a watch names one filter value and, on the rows scope, falls
-back to the lookup. The
-set is deduplicated with `new Set`, and a value that is absent simply contributes
-none.
+helper: a read is a list of one-column comparisons, so the module walks the
+entries and collects the tenants the equality and membership operators name; a
+row names its tenant as one value, so the module reads `row.tenantId`; a watch
+names one filter value and, on the rows scope, falls back to the lookup. The set
+is deduplicated with `new Set`, and an entry that does not name the column, or
+names it with an operator that cannot pin a tenant, simply contributes none.
 
 ### The two-level check
 
@@ -224,9 +227,9 @@ the guard refuses any row whose tenant is null:
   null, since an omitted field keeps the stored tenant.
 - The lookup answers `(TenantId | null)[]`, so a stored row with no tenant is
   visible to the guard rather than dropped.
-- A read filter may name `{ isNull: true }`. That names no tenant, so the guard
-  refuses it without the global permission, exactly as it refuses a read that
-  names no filter at all.
+- A read filter may name `{ isNull: true }` or `{ isNotNull: true }`. Neither
+  names a tenant, so the guard refuses the read without the global permission,
+  exactly as it refuses one that names no filter at all.
 
 A batch that mixes tenanted and unowned rows needs the global permission for the
 unowned one and `hasTenantPermission` in each named tenant; holding neither is

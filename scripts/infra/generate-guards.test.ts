@@ -69,6 +69,7 @@ export interface Owned {
     /** @primaryKey */
     id: string;
 
+    /** @queryFilter */
     tenantId: TenantId;
 }
 `.trim();
@@ -91,6 +92,7 @@ export interface OptionalEntity {
     /** @primaryKey */
     id: string;
 
+    /** @queryFilter ops=eq,isNull,isNotNull */
     tenantId?: TenantId;
 }
 `.trim();
@@ -202,18 +204,22 @@ describe("renderGuardModule", () => {
         expect(code).not.toContain("tenantIds");
     });
 
-    it("reads a tenant-owned read's filter field and checks each tenant", () => {
+    it("reads a tenant-owned read's filter list and checks each tenant", () => {
         const code = moduleOf(OWNED_DOMAIN, "Owned", "query");
 
-        expect(code).toContain('import type { TenantId } from "spec/fixtures/Tenant.ts";');
-        expect(code).toContain("const tenants = new Set(argument.filter?.tenantId);");
+        expect(code).toContain('import type { OwnedFilter } from "sdk/filters.ts";');
+        expect(code).toContain('import type { Filter } from "sdk/selection.ts";');
+        expect(code).toContain('import type { Owned } from "spec/fixtures/Owned.ts";');
+        expect(code).toContain("const tenants = new Set<NonNullable<Owned[\"tenantId\"]>>();");
+        expect(code).toContain("for (const filter of argument.filters ?? []) {");
+        expect(code).toContain("const comparison = filter.tenantId;");
+        expect(code).toContain("tenants.add(comparison.eq);");
         expect(code).toContain("if (tenants.size === 0) {");
         expect(code).toContain('if (!(await ctx.hasTenantPermission("owned", "query", tenant))) {');
         expect(code).toContain(
-            "export const canQueryOwned: RouteGuard<{ filter?: { tenantId?: readonly TenantId[] | undefined } | undefined }>",
+            "export const canQueryOwned: RouteGuard<{ filters?: readonly Filter<Owned, OwnedFilter>[] | undefined }>",
         );
         expect(code).not.toContain("getOwnedTenants");
-        expect(code).not.toContain("tenantIds");
     });
 
     it("calls the generated lookup for the keys a delete names", () => {
@@ -249,11 +255,10 @@ describe("renderGuardModule", () => {
     it("accepts a null test on an optional tenant filter, which names no tenant", () => {
         const code = moduleOf(OPTIONAL_DOMAIN, "OptionalEntity", "query");
 
-        expect(code).toContain(
-            "tenantId?: readonly TenantId[] | { readonly isNull: true } | { readonly isNotNull: true } | undefined",
-        );
-        expect(code).toContain("const filtered = argument.filter?.tenantId;");
-        expect(code).toContain("const tenants = new Set(Array.isArray(filtered) ? filtered : []);");
+        // A null test is one of the column's operators, so it typechecks; it names no tenant, so the set stays empty.
+        expect(code).toContain("filters?: readonly Filter<OptionalEntity, OptionalEntityFilter>[] | undefined");
+        expect(code).toContain("if (comparison.eq !== undefined) {");
+        expect(code).toContain("for (const filter of argument.filters ?? []) {");
         expect(code).toContain('"optionalEntity:query names no tenant, which needs the global permission"');
     });
 

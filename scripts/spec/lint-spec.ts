@@ -1346,6 +1346,14 @@ function lintTenancy(spec: SpecModel, findings: Diagnostic[]): void {
                 tag,
             );
         }
+        // The generated query guard reads the tenants a read names from its filters, so the column must be one.
+        if (entity.queries.includes("query") && scoped.tags.queryFilter === undefined) {
+            reportEntity(
+                entity,
+                `@${TENANT_OWNED_TAG} names \`${column}\`, which its \`query\` needs as a filter; write \`@queryFilter\` there`,
+                tag,
+            );
+        }
     }
 
     // An owned interface without a root has nothing to scope against, which is worth saying once.

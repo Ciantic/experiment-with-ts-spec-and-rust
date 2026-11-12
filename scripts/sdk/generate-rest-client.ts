@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "nod
 import { dirname, join } from "node:path";
 import { SDK_PACKAGE_ROOT } from "../paths.ts";
 import { TRIGGER_EVENTS, loadSpec, type SpecModel, type TriggerEvent } from "../spec/spec-model.ts";
+import { filterTypeName } from "./generate-filters.ts";
 import { writeTypeFileName } from "./generate-zod-schemas.ts";
 import {
     buildRestModel,
@@ -45,6 +46,9 @@ const INDEX_FILE = "index.ts";
 /** The package specifier the read types are imported from. */
 const SELECTION_IMPORT = "../selection.ts";
 
+/** The generated module holding each entity's filter map. */
+const FILTERS_IMPORT = "../filters.ts";
+
 /** The directory the shared write types (`<Entity>Patch`, `<Entity>Insert`) are imported from, relative to `api/`. */
 const WRITE_TYPES_DIR = "..";
 
@@ -63,21 +67,11 @@ function filterKeys(filters: string[]): string {
     return filters.map((name) => JSON.stringify(name)).join(" | ");
 }
 
-/** The operator map a `Filters` takes: `{ size: "gt" | "gte" }`. */
-function operatorMap(fields: { name: string; operators: string[] }[]): string {
-    const entries = fields.map((field) => `${field.name}: ${filterKeys(field.operators)}`);
-    return `{ ${entries.join("; ")} }`;
-}
-
 /** The properties of the `query` options: the filters, ordering, paging, and the selection. */
-function queryOpts(
-    name: string,
-    order: string[],
-    where: { name: string; operators: string[] }[],
-): string[] {
+function queryOpts(name: string, order: string[], filtered: boolean): string[] {
     const parts: string[] = [];
-    if (where.length > 0) {
-        parts.push(`filters?: Filters<${name}, ${operatorMap(where)}>`);
+    if (filtered) {
+        parts.push(`filters?: Filters<${name}, ${filterTypeName(name)}>`);
     }
     if (order.length > 0) {
         parts.push(`order?: Order<${filterKeys(order)}>[]`);
@@ -260,6 +254,9 @@ export function renderClientModule(entity: RestEntity): string {
     // The entity type and the selection types are what the read's signature is made of, so only a read carries them. See docs/queries.md.
     if (query) {
         lines.push(`import type { ${name} } from "${entity.importSpecifier}";`);
+        if (entity.whereFields.length > 0) {
+            lines.push(`import type { ${filterTypeName(name)} } from "${FILTERS_IMPORT}";`);
+        }
         lines.push(`import type { ${selectionTypes.join(", ")} } from "${SELECTION_IMPORT}";`);
     }
     // A filter names the entity's fields, so the stream's type needs it too.
@@ -336,7 +333,7 @@ export function renderClientModule(entity: RestEntity): string {
         lines.push(...callPreamble(query.id, [entitySummary(entity, "query")], entityCallErrors(entity, query)));
         lines.push(`export function ${query.id}<S extends Selection<${name}>>(`);
         lines.push("    opts: {");
-        for (const property of queryOpts(name, entity.orderFields, entity.whereFields)) {
+        for (const property of queryOpts(name, entity.orderFields, entity.whereFields.length > 0)) {
             lines.push(`        ${property};`);
         }
         lines.push("    },");

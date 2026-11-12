@@ -220,9 +220,8 @@ is the one function that talks to the network:
 ```typescript
 export function queryWidget<S extends Selection<Widget>>(
     opts: {
-        filter: Filters<Widget, "id" | "tenantId" | "accountId" | "supplierId", "tenantId">;
+        filters?: Filters<Widget, WidgetFilter>;
         order?: Order<"createdAt" | "updatedAt">[];
-        where?: Where<Widget, { startsAt: "gte" | "lte" }>;
         limit?: number;
         offset?: number;
         select: S;
