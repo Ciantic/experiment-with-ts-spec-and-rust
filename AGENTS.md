@@ -1,5 +1,10 @@
 # Architecture
 
+Do not read other git branches, or directories outside this project without
+permission from user.
+
+## 
+
 - `packages/spec/` — TypeScript interfaces that form the definition of the
   application.
 - `packages/sdk/` — generated type-safe REST client, the generated Zod schemas
