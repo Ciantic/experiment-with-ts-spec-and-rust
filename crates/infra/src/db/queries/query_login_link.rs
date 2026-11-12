@@ -77,214 +77,6 @@ impl std::fmt::Display for LoginLinkSelectField {
     }
 }
 
-/// A column of `LoginLink` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum LoginLinkFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "email")]
-    Email,
-    #[serde(rename = "tokenHash")]
-    TokenHash,
-}
-
-impl LoginLinkFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::Email,
-        Self::TokenHash,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::Email => "email",
-            Self::TokenHash => "tokenHash",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::Email => SqlType::Text,
-            Self::TokenHash => SqlType::Text,
-        }
-    }
-}
-
-impl std::fmt::Display for LoginLinkFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl LoginLinkFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: LoginLinkIdFilter = LoginLinkIdFilter(Self::Id);
-    /// The `email` typed filter builder.
-    pub const EMAIL: LoginLinkEmailFilter = LoginLinkEmailFilter(Self::Email);
-    /// The `tokenHash` typed filter builder.
-    pub const TOKEN_HASH: LoginLinkTokenHashFilter = LoginLinkTokenHashFilter(Self::TokenHash);
-}
-
-/// The `id` filter of `LoginLink`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LoginLinkIdFilter(LoginLinkFilterField);
-
-impl LoginLinkIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> LoginLinkFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<LoginLinkId>) -> LoginLinkFilter {
-        LoginLinkFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<LoginLinkId>) -> LoginLinkFilter {
-        LoginLinkFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<LoginLinkId>>,
-    ) -> LoginLinkFilter {
-        LoginLinkFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> LoginLinkFilter {
-        LoginLinkFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> LoginLinkFilter {
-        LoginLinkFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `email` filter of `LoginLink`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LoginLinkEmailFilter(LoginLinkFilterField);
-
-impl LoginLinkEmailFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> LoginLinkFilterField {
-        self.0
-    }
-
-    /// `email = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<EmailAddress>) -> LoginLinkFilter {
-        LoginLinkFilter::Email(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `email <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<EmailAddress>) -> LoginLinkFilter {
-        LoginLinkFilter::Email(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `email = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<EmailAddress>>,
-    ) -> LoginLinkFilter {
-        LoginLinkFilter::Email(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `email is null`.
-    #[must_use]
-    pub fn is_null(self) -> LoginLinkFilter {
-        LoginLinkFilter::Email(Comparison::IsNull)
-    }
-
-    /// `email is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> LoginLinkFilter {
-        LoginLinkFilter::Email(Comparison::IsNotNull)
-    }
-}
-
-/// The `tokenHash` filter of `LoginLink`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LoginLinkTokenHashFilter(LoginLinkFilterField);
-
-impl LoginLinkTokenHashFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> LoginLinkFilterField {
-        self.0
-    }
-
-    /// `tokenHash = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<LoginLinkTokenHash>) -> LoginLinkFilter {
-        LoginLinkFilter::TokenHash(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `tokenHash <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<LoginLinkTokenHash>) -> LoginLinkFilter {
-        LoginLinkFilter::TokenHash(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `tokenHash = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<LoginLinkTokenHash>>,
-    ) -> LoginLinkFilter {
-        LoginLinkFilter::TokenHash(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `tokenHash is null`.
-    #[must_use]
-    pub fn is_null(self) -> LoginLinkFilter {
-        LoginLinkFilter::TokenHash(Comparison::IsNull)
-    }
-
-    /// `tokenHash is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> LoginLinkFilter {
-        LoginLinkFilter::TokenHash(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `LoginLink`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -344,6 +136,147 @@ impl LoginLinkFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl LoginLinkFilter {
+    /// The `id` typed filter builder.
+    pub const ID: LoginLinkIdFilter = LoginLinkIdFilter;
+    /// The `email` typed filter builder.
+    pub const EMAIL: LoginLinkEmailFilter = LoginLinkEmailFilter;
+    /// The `tokenHash` typed filter builder.
+    pub const TOKEN_HASH: LoginLinkTokenHashFilter = LoginLinkTokenHashFilter;
+}
+
+/// The `id` filter of `LoginLink`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoginLinkIdFilter;
+
+impl LoginLinkIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<LoginLinkId>) -> LoginLinkFilter {
+        LoginLinkFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<LoginLinkId>) -> LoginLinkFilter {
+        LoginLinkFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<LoginLinkId>>,
+    ) -> LoginLinkFilter {
+        LoginLinkFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> LoginLinkFilter {
+        LoginLinkFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> LoginLinkFilter {
+        LoginLinkFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `email` filter of `LoginLink`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoginLinkEmailFilter;
+
+impl LoginLinkEmailFilter {
+    /// `email = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<EmailAddress>) -> LoginLinkFilter {
+        LoginLinkFilter::Email(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `email <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<EmailAddress>) -> LoginLinkFilter {
+        LoginLinkFilter::Email(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `email = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<EmailAddress>>,
+    ) -> LoginLinkFilter {
+        LoginLinkFilter::Email(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `email is null`.
+    #[must_use]
+    pub fn is_null(self) -> LoginLinkFilter {
+        LoginLinkFilter::Email(Comparison::IsNull)
+    }
+
+    /// `email is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> LoginLinkFilter {
+        LoginLinkFilter::Email(Comparison::IsNotNull)
+    }
+}
+
+/// The `tokenHash` filter of `LoginLink`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LoginLinkTokenHashFilter;
+
+impl LoginLinkTokenHashFilter {
+    /// `tokenHash = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<LoginLinkTokenHash>) -> LoginLinkFilter {
+        LoginLinkFilter::TokenHash(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `tokenHash <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<LoginLinkTokenHash>) -> LoginLinkFilter {
+        LoginLinkFilter::TokenHash(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `tokenHash = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<LoginLinkTokenHash>>,
+    ) -> LoginLinkFilter {
+        LoginLinkFilter::TokenHash(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `tokenHash is null`.
+    #[must_use]
+    pub fn is_null(self) -> LoginLinkFilter {
+        LoginLinkFilter::TokenHash(Comparison::IsNull)
+    }
+
+    /// `tokenHash is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> LoginLinkFilter {
+        LoginLinkFilter::TokenHash(Comparison::IsNotNull)
     }
 }
 
@@ -434,7 +367,7 @@ pub struct LoginLinkReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<LoginLinkSelectField>,
-    /// The filters, combined with `and`; each is built by a `LoginLinkFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `LoginLinkFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<LoginLinkFilter>,
     /// The ordering clauses, in order.
@@ -458,7 +391,7 @@ impl LoginLinkReadOptions {
         }
     }
 
-    /// Add a filter, built by a `LoginLinkFilterField` helper.
+    /// Add a filter, built by a `LoginLinkFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: LoginLinkFilter) -> Self {
         self.filters.push(filter);

@@ -134,7 +134,6 @@ describe("selectableFields", () => {
 describe("fieldEnumName", () => {
     it("names one enum per capability", () => {
         expect(fieldEnumName("Invoice", "Select")).toBe("InvoiceSelectField");
-        expect(fieldEnumName("Invoice", "Filter")).toBe("InvoiceFilterField");
         expect(fieldEnumName("Invoice", "Order")).toBe("InvoiceOrderField");
     });
 });
@@ -170,14 +169,11 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub fn order(mut self, order: InvoiceOrder) -> Self");
     });
 
-    it("names each filter's column type, so a driver can bind it", () => {
+    it("names each filter's column and type when it lowers to the planner", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub const fn sql_type(self) -> SqlType {");
-        expect(code).toContain("Self::TenantId => SqlType::Uuid,");
-        expect(code).toContain('"tenantId"');
-        expect(code).toContain("SqlType::Uuid");
-        expect(code).toContain("TypedFilter::comparison(");
+        expect(code).toContain('TypedFilter::comparison("tenantId", SqlType::Uuid, comparison)');
+        expect(code).toContain('TypedFilter::comparison("deletedAt", SqlType::Timestamptz, comparison)');
     });
 
     it("makes each filter variant carry its column's model type", () => {
@@ -190,10 +186,18 @@ describe("renderQueryModule", () => {
         expect(code).toContain('#[serde(rename_all = "camelCase")]');
     });
 
+    it("carries no filter-field enum: the variant already names the column", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).not.toContain("FilterField");
+        expect(code).toContain("pub struct InvoiceTenantIdFilter;");
+        expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter;");
+    });
+
     it("reaches a variant through that column's typed builder", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter(Self::TenantId);");
+        expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter;");
         expect(code).toContain("pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceFilter {");
         expect(code).toContain("InvoiceFilter::TenantId(Comparison::Eq(owned(value.borrow())))");
         expect(code).toContain(".map(|value| owned(value.borrow()))");
@@ -278,7 +282,6 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub enum InvoiceSelectField {");
-        expect(code).toContain("pub enum InvoiceFilterField {");
         expect(code).toContain("pub enum InvoiceOrderField {");
         expect(code).toContain("Self::TenantId => \"tenantId\",");
     });
@@ -287,7 +290,6 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn select(self) -> SelectColumn");
-        expect(code).toContain("pub const fn field(self) -> InvoiceFilterField {");
         expect(code).toContain("pub fn asc(self) -> InvoiceOrder {");
         expect(code).toContain("pub struct InvoiceOrder {");
     });
@@ -295,7 +297,6 @@ describe("renderQueryModule", () => {
     it("writes an empty field set when the entity declares none", () => {
         const code = renderQueryModule(bare, spec);
 
-        expect(code).toContain("pub enum AuditLogFilterField {}");
         expect(code).toContain("pub enum AuditLogOrderField {}");
         expect(code).toContain("pub const ALL: &'static [Self] = &[];");
     });

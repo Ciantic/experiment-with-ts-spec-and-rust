@@ -101,205 +101,6 @@ impl std::fmt::Display for EmailSelectField {
     }
 }
 
-/// A column of `Email` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum EmailFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-    #[serde(rename = "status")]
-    Status,
-}
-
-impl EmailFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-        Self::Status,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-            Self::Status => "status",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::TenantId => SqlType::Uuid,
-            Self::Status => SqlType::Text,
-        }
-    }
-}
-
-impl std::fmt::Display for EmailFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl EmailFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: EmailIdFilter = EmailIdFilter(Self::Id);
-    /// The `tenantId` typed filter builder.
-    pub const TENANT_ID: EmailTenantIdFilter = EmailTenantIdFilter(Self::TenantId);
-    /// The `status` typed filter builder.
-    pub const STATUS: EmailStatusFilter = EmailStatusFilter(Self::Status);
-}
-
-/// The `id` filter of `Email`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EmailIdFilter(EmailFilterField);
-
-impl EmailIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> EmailFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<EmailId>) -> EmailFilter {
-        EmailFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<EmailId>) -> EmailFilter {
-        EmailFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailId>>) -> EmailFilter {
-        EmailFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> EmailFilter {
-        EmailFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> EmailFilter {
-        EmailFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `tenantId` filter of `Email`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EmailTenantIdFilter(EmailFilterField);
-
-impl EmailTenantIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> EmailFilterField {
-        self.0
-    }
-
-    /// `tenantId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantId>) -> EmailFilter {
-        EmailFilter::TenantId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `tenantId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantId>) -> EmailFilter {
-        EmailFilter::TenantId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `tenantId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> EmailFilter {
-        EmailFilter::TenantId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `tenantId is null`.
-    #[must_use]
-    pub fn is_null(self) -> EmailFilter {
-        EmailFilter::TenantId(Comparison::IsNull)
-    }
-
-    /// `tenantId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> EmailFilter {
-        EmailFilter::TenantId(Comparison::IsNotNull)
-    }
-}
-
-/// The `status` filter of `Email`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct EmailStatusFilter(EmailFilterField);
-
-impl EmailStatusFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> EmailFilterField {
-        self.0
-    }
-
-    /// `status = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<EmailStatus>) -> EmailFilter {
-        EmailFilter::Status(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `status <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<EmailStatus>) -> EmailFilter {
-        EmailFilter::Status(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `status = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailStatus>>) -> EmailFilter {
-        EmailFilter::Status(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `status is null`.
-    #[must_use]
-    pub fn is_null(self) -> EmailFilter {
-        EmailFilter::Status(Comparison::IsNull)
-    }
-
-    /// `status is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> EmailFilter {
-        EmailFilter::Status(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `Email`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -361,6 +162,138 @@ impl EmailFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl EmailFilter {
+    /// The `id` typed filter builder.
+    pub const ID: EmailIdFilter = EmailIdFilter;
+    /// The `tenantId` typed filter builder.
+    pub const TENANT_ID: EmailTenantIdFilter = EmailTenantIdFilter;
+    /// The `status` typed filter builder.
+    pub const STATUS: EmailStatusFilter = EmailStatusFilter;
+}
+
+/// The `id` filter of `Email`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EmailIdFilter;
+
+impl EmailIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<EmailId>) -> EmailFilter {
+        EmailFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<EmailId>) -> EmailFilter {
+        EmailFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailId>>) -> EmailFilter {
+        EmailFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> EmailFilter {
+        EmailFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> EmailFilter {
+        EmailFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `tenantId` filter of `Email`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EmailTenantIdFilter;
+
+impl EmailTenantIdFilter {
+    /// `tenantId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `tenantId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `tenantId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `tenantId is null`.
+    #[must_use]
+    pub fn is_null(self) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::IsNull)
+    }
+
+    /// `tenantId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> EmailFilter {
+        EmailFilter::TenantId(Comparison::IsNotNull)
+    }
+}
+
+/// The `status` filter of `Email`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EmailStatusFilter;
+
+impl EmailStatusFilter {
+    /// `status = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<EmailStatus>) -> EmailFilter {
+        EmailFilter::Status(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `status <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<EmailStatus>) -> EmailFilter {
+        EmailFilter::Status(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `status = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<EmailStatus>>) -> EmailFilter {
+        EmailFilter::Status(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `status is null`.
+    #[must_use]
+    pub fn is_null(self) -> EmailFilter {
+        EmailFilter::Status(Comparison::IsNull)
+    }
+
+    /// `status is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> EmailFilter {
+        EmailFilter::Status(Comparison::IsNotNull)
     }
 }
 
@@ -463,7 +396,7 @@ pub struct EmailReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<EmailSelectField>,
-    /// The filters, combined with `and`; each is built by a `EmailFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `EmailFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<EmailFilter>,
     /// The ordering clauses, in order.
@@ -487,7 +420,7 @@ impl EmailReadOptions {
         }
     }
 
-    /// Add a filter, built by a `EmailFilterField` helper.
+    /// Add a filter, built by a `EmailFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: EmailFilter) -> Self {
         self.filters.push(filter);

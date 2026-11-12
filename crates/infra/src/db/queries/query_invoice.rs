@@ -110,316 +110,6 @@ impl std::fmt::Display for InvoiceSelectField {
     }
 }
 
-/// A column of `Invoice` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum InvoiceFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-    #[serde(rename = "customerId")]
-    CustomerId,
-    #[serde(rename = "sellerId")]
-    SellerId,
-    #[serde(rename = "deletedAt")]
-    DeletedAt,
-}
-
-impl InvoiceFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-        Self::CustomerId,
-        Self::SellerId,
-        Self::DeletedAt,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-            Self::CustomerId => "customerId",
-            Self::SellerId => "sellerId",
-            Self::DeletedAt => "deletedAt",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::TenantId => SqlType::Uuid,
-            Self::CustomerId => SqlType::Uuid,
-            Self::SellerId => SqlType::Uuid,
-            Self::DeletedAt => SqlType::Timestamptz,
-        }
-    }
-}
-
-impl std::fmt::Display for InvoiceFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl InvoiceFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: InvoiceIdFilter = InvoiceIdFilter(Self::Id);
-    /// The `tenantId` typed filter builder.
-    pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter(Self::TenantId);
-    /// The `customerId` typed filter builder.
-    pub const CUSTOMER_ID: InvoiceCustomerIdFilter = InvoiceCustomerIdFilter(Self::CustomerId);
-    /// The `sellerId` typed filter builder.
-    pub const SELLER_ID: InvoiceSellerIdFilter = InvoiceSellerIdFilter(Self::SellerId);
-    /// The `deletedAt` typed filter builder.
-    pub const DELETED_AT: InvoiceDeletedAtFilter = InvoiceDeletedAtFilter(Self::DeletedAt);
-}
-
-/// The `id` filter of `Invoice`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceIdFilter(InvoiceFilterField);
-
-impl InvoiceIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<InvoiceId>) -> InvoiceFilter {
-        InvoiceFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<InvoiceId>) -> InvoiceFilter {
-        InvoiceFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<InvoiceId>>) -> InvoiceFilter {
-        InvoiceFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceFilter {
-        InvoiceFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceFilter {
-        InvoiceFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `tenantId` filter of `Invoice`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceTenantIdFilter(InvoiceFilterField);
-
-impl InvoiceTenantIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceFilterField {
-        self.0
-    }
-
-    /// `tenantId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceFilter {
-        InvoiceFilter::TenantId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `tenantId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantId>) -> InvoiceFilter {
-        InvoiceFilter::TenantId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `tenantId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> InvoiceFilter {
-        InvoiceFilter::TenantId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `tenantId is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceFilter {
-        InvoiceFilter::TenantId(Comparison::IsNull)
-    }
-
-    /// `tenantId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceFilter {
-        InvoiceFilter::TenantId(Comparison::IsNotNull)
-    }
-}
-
-/// The `customerId` filter of `Invoice`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceCustomerIdFilter(InvoiceFilterField);
-
-impl InvoiceCustomerIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceFilterField {
-        self.0
-    }
-
-    /// `customerId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<CustomerId>) -> InvoiceFilter {
-        InvoiceFilter::CustomerId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `customerId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<CustomerId>) -> InvoiceFilter {
-        InvoiceFilter::CustomerId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `customerId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<CustomerId>>) -> InvoiceFilter {
-        InvoiceFilter::CustomerId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `customerId is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceFilter {
-        InvoiceFilter::CustomerId(Comparison::IsNull)
-    }
-
-    /// `customerId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceFilter {
-        InvoiceFilter::CustomerId(Comparison::IsNotNull)
-    }
-}
-
-/// The `sellerId` filter of `Invoice`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceSellerIdFilter(InvoiceFilterField);
-
-impl InvoiceSellerIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceFilterField {
-        self.0
-    }
-
-    /// `sellerId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<SellerId>) -> InvoiceFilter {
-        InvoiceFilter::SellerId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `sellerId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<SellerId>) -> InvoiceFilter {
-        InvoiceFilter::SellerId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `sellerId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<SellerId>>) -> InvoiceFilter {
-        InvoiceFilter::SellerId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `sellerId is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceFilter {
-        InvoiceFilter::SellerId(Comparison::IsNull)
-    }
-
-    /// `sellerId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceFilter {
-        InvoiceFilter::SellerId(Comparison::IsNotNull)
-    }
-}
-
-/// The `deletedAt` filter of `Invoice`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceDeletedAtFilter(InvoiceFilterField);
-
-impl InvoiceDeletedAtFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceFilterField {
-        self.0
-    }
-
-    /// `deletedAt = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<chrono::DateTime<chrono::Utc>>) -> InvoiceFilter {
-        InvoiceFilter::DeletedAt(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `deletedAt <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<chrono::DateTime<chrono::Utc>>) -> InvoiceFilter {
-        InvoiceFilter::DeletedAt(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `deletedAt = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<chrono::DateTime<chrono::Utc>>>,
-    ) -> InvoiceFilter {
-        InvoiceFilter::DeletedAt(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `deletedAt is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceFilter {
-        InvoiceFilter::DeletedAt(Comparison::IsNull)
-    }
-
-    /// `deletedAt is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceFilter {
-        InvoiceFilter::DeletedAt(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `Invoice`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -491,6 +181,227 @@ impl InvoiceFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl InvoiceFilter {
+    /// The `id` typed filter builder.
+    pub const ID: InvoiceIdFilter = InvoiceIdFilter;
+    /// The `tenantId` typed filter builder.
+    pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter;
+    /// The `customerId` typed filter builder.
+    pub const CUSTOMER_ID: InvoiceCustomerIdFilter = InvoiceCustomerIdFilter;
+    /// The `sellerId` typed filter builder.
+    pub const SELLER_ID: InvoiceSellerIdFilter = InvoiceSellerIdFilter;
+    /// The `deletedAt` typed filter builder.
+    pub const DELETED_AT: InvoiceDeletedAtFilter = InvoiceDeletedAtFilter;
+}
+
+/// The `id` filter of `Invoice`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceIdFilter;
+
+impl InvoiceIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<InvoiceId>) -> InvoiceFilter {
+        InvoiceFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<InvoiceId>) -> InvoiceFilter {
+        InvoiceFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<InvoiceId>>) -> InvoiceFilter {
+        InvoiceFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceFilter {
+        InvoiceFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceFilter {
+        InvoiceFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `tenantId` filter of `Invoice`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceTenantIdFilter;
+
+impl InvoiceTenantIdFilter {
+    /// `tenantId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceFilter {
+        InvoiceFilter::TenantId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `tenantId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> InvoiceFilter {
+        InvoiceFilter::TenantId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `tenantId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> InvoiceFilter {
+        InvoiceFilter::TenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `tenantId is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceFilter {
+        InvoiceFilter::TenantId(Comparison::IsNull)
+    }
+
+    /// `tenantId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceFilter {
+        InvoiceFilter::TenantId(Comparison::IsNotNull)
+    }
+}
+
+/// The `customerId` filter of `Invoice`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceCustomerIdFilter;
+
+impl InvoiceCustomerIdFilter {
+    /// `customerId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<CustomerId>) -> InvoiceFilter {
+        InvoiceFilter::CustomerId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `customerId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<CustomerId>) -> InvoiceFilter {
+        InvoiceFilter::CustomerId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `customerId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<CustomerId>>) -> InvoiceFilter {
+        InvoiceFilter::CustomerId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `customerId is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceFilter {
+        InvoiceFilter::CustomerId(Comparison::IsNull)
+    }
+
+    /// `customerId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceFilter {
+        InvoiceFilter::CustomerId(Comparison::IsNotNull)
+    }
+}
+
+/// The `sellerId` filter of `Invoice`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceSellerIdFilter;
+
+impl InvoiceSellerIdFilter {
+    /// `sellerId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<SellerId>) -> InvoiceFilter {
+        InvoiceFilter::SellerId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `sellerId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<SellerId>) -> InvoiceFilter {
+        InvoiceFilter::SellerId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `sellerId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<SellerId>>) -> InvoiceFilter {
+        InvoiceFilter::SellerId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `sellerId is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceFilter {
+        InvoiceFilter::SellerId(Comparison::IsNull)
+    }
+
+    /// `sellerId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceFilter {
+        InvoiceFilter::SellerId(Comparison::IsNotNull)
+    }
+}
+
+/// The `deletedAt` filter of `Invoice`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceDeletedAtFilter;
+
+impl InvoiceDeletedAtFilter {
+    /// `deletedAt = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<chrono::DateTime<chrono::Utc>>) -> InvoiceFilter {
+        InvoiceFilter::DeletedAt(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `deletedAt <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<chrono::DateTime<chrono::Utc>>) -> InvoiceFilter {
+        InvoiceFilter::DeletedAt(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `deletedAt = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<chrono::DateTime<chrono::Utc>>>,
+    ) -> InvoiceFilter {
+        InvoiceFilter::DeletedAt(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `deletedAt is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceFilter {
+        InvoiceFilter::DeletedAt(Comparison::IsNull)
+    }
+
+    /// `deletedAt is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceFilter {
+        InvoiceFilter::DeletedAt(Comparison::IsNotNull)
     }
 }
 
@@ -593,7 +504,7 @@ pub struct InvoiceReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<InvoiceSelectField>,
-    /// The filters, combined with `and`; each is built by a `InvoiceFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `InvoiceFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<InvoiceFilter>,
     /// The ordering clauses, in order.
@@ -617,7 +528,7 @@ impl InvoiceReadOptions {
         }
     }
 
-    /// Add a filter, built by a `InvoiceFilterField` helper.
+    /// Add a filter, built by a `InvoiceFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: InvoiceFilter) -> Self {
         self.filters.push(filter);

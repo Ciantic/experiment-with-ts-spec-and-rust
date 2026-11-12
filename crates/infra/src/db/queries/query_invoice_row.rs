@@ -100,154 +100,6 @@ impl std::fmt::Display for InvoiceRowSelectField {
     }
 }
 
-/// A column of `InvoiceRow` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum InvoiceRowFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-}
-
-impl InvoiceRowFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::TenantId => SqlType::Uuid,
-        }
-    }
-}
-
-impl std::fmt::Display for InvoiceRowFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl InvoiceRowFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: InvoiceRowIdFilter = InvoiceRowIdFilter(Self::Id);
-    /// The `tenantId` typed filter builder.
-    pub const TENANT_ID: InvoiceRowTenantIdFilter = InvoiceRowTenantIdFilter(Self::TenantId);
-}
-
-/// The `id` filter of `InvoiceRow`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceRowIdFilter(InvoiceRowFilterField);
-
-impl InvoiceRowIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceRowFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<InvoiceRowId>) -> InvoiceRowFilter {
-        InvoiceRowFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<InvoiceRowId>) -> InvoiceRowFilter {
-        InvoiceRowFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<InvoiceRowId>>,
-    ) -> InvoiceRowFilter {
-        InvoiceRowFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceRowFilter {
-        InvoiceRowFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceRowFilter {
-        InvoiceRowFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `tenantId` filter of `InvoiceRow`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct InvoiceRowTenantIdFilter(InvoiceRowFilterField);
-
-impl InvoiceRowTenantIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> InvoiceRowFilterField {
-        self.0
-    }
-
-    /// `tenantId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceRowFilter {
-        InvoiceRowFilter::TenantId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `tenantId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantId>) -> InvoiceRowFilter {
-        InvoiceRowFilter::TenantId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `tenantId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> InvoiceRowFilter {
-        InvoiceRowFilter::TenantId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `tenantId is null`.
-    #[must_use]
-    pub fn is_null(self) -> InvoiceRowFilter {
-        InvoiceRowFilter::TenantId(Comparison::IsNull)
-    }
-
-    /// `tenantId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> InvoiceRowFilter {
-        InvoiceRowFilter::TenantId(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `InvoiceRow`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -304,6 +156,98 @@ impl InvoiceRowFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl InvoiceRowFilter {
+    /// The `id` typed filter builder.
+    pub const ID: InvoiceRowIdFilter = InvoiceRowIdFilter;
+    /// The `tenantId` typed filter builder.
+    pub const TENANT_ID: InvoiceRowTenantIdFilter = InvoiceRowTenantIdFilter;
+}
+
+/// The `id` filter of `InvoiceRow`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceRowIdFilter;
+
+impl InvoiceRowIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<InvoiceRowId>) -> InvoiceRowFilter {
+        InvoiceRowFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<InvoiceRowId>) -> InvoiceRowFilter {
+        InvoiceRowFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<InvoiceRowId>>,
+    ) -> InvoiceRowFilter {
+        InvoiceRowFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceRowFilter {
+        InvoiceRowFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceRowFilter {
+        InvoiceRowFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `tenantId` filter of `InvoiceRow`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct InvoiceRowTenantIdFilter;
+
+impl InvoiceRowTenantIdFilter {
+    /// `tenantId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceRowFilter {
+        InvoiceRowFilter::TenantId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `tenantId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> InvoiceRowFilter {
+        InvoiceRowFilter::TenantId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `tenantId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> InvoiceRowFilter {
+        InvoiceRowFilter::TenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `tenantId is null`.
+    #[must_use]
+    pub fn is_null(self) -> InvoiceRowFilter {
+        InvoiceRowFilter::TenantId(Comparison::IsNull)
+    }
+
+    /// `tenantId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> InvoiceRowFilter {
+        InvoiceRowFilter::TenantId(Comparison::IsNotNull)
     }
 }
 
@@ -394,7 +338,7 @@ pub struct InvoiceRowReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<InvoiceRowSelectField>,
-    /// The filters, combined with `and`; each is built by a `InvoiceRowFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `InvoiceRowFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<InvoiceRowFilter>,
     /// The ordering clauses, in order.
@@ -418,7 +362,7 @@ impl InvoiceRowReadOptions {
         }
     }
 
-    /// Add a filter, built by a `InvoiceRowFilterField` helper.
+    /// Add a filter, built by a `InvoiceRowFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: InvoiceRowFilter) -> Self {
         self.filters.push(filter);

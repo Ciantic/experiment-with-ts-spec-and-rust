@@ -72,216 +72,6 @@ impl std::fmt::Display for TenantSharedPermissionSelectField {
     }
 }
 
-/// A column of `TenantSharedPermission` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum TenantSharedPermissionFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "ownerTenantId")]
-    OwnerTenantId,
-    #[serde(rename = "sharedTenantId")]
-    SharedTenantId,
-}
-
-impl TenantSharedPermissionFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::OwnerTenantId,
-        Self::SharedTenantId,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::OwnerTenantId => "ownerTenantId",
-            Self::SharedTenantId => "sharedTenantId",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::OwnerTenantId => SqlType::Uuid,
-            Self::SharedTenantId => SqlType::Uuid,
-        }
-    }
-}
-
-impl std::fmt::Display for TenantSharedPermissionFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TenantSharedPermissionFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: TenantSharedPermissionIdFilter = TenantSharedPermissionIdFilter(Self::Id);
-    /// The `ownerTenantId` typed filter builder.
-    pub const OWNER_TENANT_ID: TenantSharedPermissionOwnerTenantIdFilter =
-        TenantSharedPermissionOwnerTenantIdFilter(Self::OwnerTenantId);
-    /// The `sharedTenantId` typed filter builder.
-    pub const SHARED_TENANT_ID: TenantSharedPermissionSharedTenantIdFilter =
-        TenantSharedPermissionSharedTenantIdFilter(Self::SharedTenantId);
-}
-
-/// The `id` filter of `TenantSharedPermission`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TenantSharedPermissionIdFilter(TenantSharedPermissionFilterField);
-
-impl TenantSharedPermissionIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> TenantSharedPermissionFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantSharedPermissionId>) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantSharedPermissionId>) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<TenantSharedPermissionId>>,
-    ) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `ownerTenantId` filter of `TenantSharedPermission`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TenantSharedPermissionOwnerTenantIdFilter(TenantSharedPermissionFilterField);
-
-impl TenantSharedPermissionOwnerTenantIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> TenantSharedPermissionFilterField {
-        self.0
-    }
-
-    /// `ownerTenantId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `ownerTenantId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `ownerTenantId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<TenantId>>,
-    ) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `ownerTenantId is null`.
-    #[must_use]
-    pub fn is_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::OwnerTenantId(Comparison::IsNull)
-    }
-
-    /// `ownerTenantId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::OwnerTenantId(Comparison::IsNotNull)
-    }
-}
-
-/// The `sharedTenantId` filter of `TenantSharedPermission`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TenantSharedPermissionSharedTenantIdFilter(TenantSharedPermissionFilterField);
-
-impl TenantSharedPermissionSharedTenantIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> TenantSharedPermissionFilterField {
-        self.0
-    }
-
-    /// `sharedTenantId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::SharedTenantId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `sharedTenantId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::SharedTenantId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `sharedTenantId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<TenantId>>,
-    ) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::SharedTenantId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `sharedTenantId is null`.
-    #[must_use]
-    pub fn is_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::SharedTenantId(Comparison::IsNull)
-    }
-
-    /// `sharedTenantId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> TenantSharedPermissionFilter {
-        TenantSharedPermissionFilter::SharedTenantId(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `TenantSharedPermission`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -343,6 +133,149 @@ impl TenantSharedPermissionFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl TenantSharedPermissionFilter {
+    /// The `id` typed filter builder.
+    pub const ID: TenantSharedPermissionIdFilter = TenantSharedPermissionIdFilter;
+    /// The `ownerTenantId` typed filter builder.
+    pub const OWNER_TENANT_ID: TenantSharedPermissionOwnerTenantIdFilter =
+        TenantSharedPermissionOwnerTenantIdFilter;
+    /// The `sharedTenantId` typed filter builder.
+    pub const SHARED_TENANT_ID: TenantSharedPermissionSharedTenantIdFilter =
+        TenantSharedPermissionSharedTenantIdFilter;
+}
+
+/// The `id` filter of `TenantSharedPermission`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TenantSharedPermissionIdFilter;
+
+impl TenantSharedPermissionIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantSharedPermissionId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantSharedPermissionId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<TenantSharedPermissionId>>,
+    ) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `ownerTenantId` filter of `TenantSharedPermission`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TenantSharedPermissionOwnerTenantIdFilter;
+
+impl TenantSharedPermissionOwnerTenantIdFilter {
+    /// `ownerTenantId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `ownerTenantId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `ownerTenantId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<TenantId>>,
+    ) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `ownerTenantId is null`.
+    #[must_use]
+    pub fn is_null(self) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::IsNull)
+    }
+
+    /// `ownerTenantId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::OwnerTenantId(Comparison::IsNotNull)
+    }
+}
+
+/// The `sharedTenantId` filter of `TenantSharedPermission`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TenantSharedPermissionSharedTenantIdFilter;
+
+impl TenantSharedPermissionSharedTenantIdFilter {
+    /// `sharedTenantId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `sharedTenantId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `sharedTenantId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<TenantId>>,
+    ) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `sharedTenantId is null`.
+    #[must_use]
+    pub fn is_null(self) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::IsNull)
+    }
+
+    /// `sharedTenantId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> TenantSharedPermissionFilter {
+        TenantSharedPermissionFilter::SharedTenantId(Comparison::IsNotNull)
     }
 }
 
@@ -433,7 +366,7 @@ pub struct TenantSharedPermissionReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<TenantSharedPermissionSelectField>,
-    /// The filters, combined with `and`; each is built by a `TenantSharedPermissionFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `TenantSharedPermissionFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<TenantSharedPermissionFilter>,
     /// The ordering clauses, in order.
@@ -459,7 +392,7 @@ impl TenantSharedPermissionReadOptions {
         }
     }
 
-    /// Add a filter, built by a `TenantSharedPermissionFilterField` helper.
+    /// Add a filter, built by a `TenantSharedPermissionFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: TenantSharedPermissionFilter) -> Self {
         self.filters.push(filter);

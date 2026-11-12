@@ -29,36 +29,103 @@ A field the read did not select stays `Partial::Unset`, so the caller can tell
 database: a `PlannedQuery`, whose SQL and typed parameters a caller can hand to
 a driver itself.
 
+## Using a read
+
+```rust
+use infra::db::ReadError;
+use infra::db::queries::{
+    InvoiceFilter, InvoiceOrderField, InvoiceReadOptions, InvoiceSelectField, query_invoice,
+};
+use models::domain::invoicing_service::invoice::InvoiceSelect;
+use models::domain::user_service::tenant::TenantId;
+use sqlx::PgPool;
+
+/// A page of a tenant's open invoices, newest first.
+async fn open_invoices(
+    pool: &PgPool,
+    tenant: &TenantId,
+    limit: u64,
+) -> Result<Vec<InvoiceSelect>, ReadError> {
+    let options = InvoiceReadOptions::with_select([
+        InvoiceSelectField::Id,
+        InvoiceSelectField::Number,
+        InvoiceSelectField::TotalAmount,
+        InvoiceSelectField::CreatedAt,
+    ])
+    .filter(InvoiceFilter::TENANT_ID.eq(tenant))
+    .filter(InvoiceFilter::DELETED_AT.is_null())
+    .order(InvoiceOrderField::CreatedAt.desc().nulls_last())
+    .limit(limit);
+
+    query_invoice(pool, options).await
+}
+```
+
+`query_invoice` takes any `SqlExecutor`; `sqlx::PgPool` implements it, so the pool
+passes straight through. Each row arrives as `InvoiceSelect`, where a field the
+read did not select stays `Partial::Unset` — the caller can tell "not read" from
+"null" without a second query.
+
+One row is the first result of a limited read, since there is no separate `get`:
+
+```rust
+let options = InvoiceReadOptions::default()
+    .filter(InvoiceFilter::TENANT_ID.eq(tenant))
+    .filter(InvoiceFilter::ID.eq(id))
+    .limit(1);
+
+let invoice = query_invoice(pool, options).await?.pop();
+```
+
+An empty `select` reads every column, and `build_query_invoice` returns the
+statement without running it:
+
+```rust
+let planned = build_query_invoice(options)?;
+println!("{} {:?}", planned.sql, planned.params);
+// SELECT "id", "number", "totalAmount", "createdAt" FROM "invoice"
+//   WHERE "tenantId" = $1 AND "deletedAt" IS NULL
+//   ORDER BY "createdAt" DESC NULLS LAST LIMIT 25
+```
+
+Filters combine with `and`; a nested group is an `InvoiceFilter`:
+
+```rust
+InvoiceReadOptions::default()
+    .filter(InvoiceFilter::TENANT_ID.eq(tenant))
+    .filter(InvoiceFilter::CUSTOMER_ID.any(customer_ids))
+    .filter(InvoiceFilter::or([
+        InvoiceFilter::SELLER_ID.is_not_null(),
+        InvoiceFilter::DELETED_AT.is_not_null(),
+    ]))
+```
+
 ## Typed fields
 
-Each module names the entity's columns once, as one enum per capability:
+Each module names the entity's columns once, as one type per capability:
 
 | Type | Built from | Fields |
 | --- | --- | --- |
 | `WidgetSelectField` | every column | selectable |
-| `WidgetFilterField` | `@queryFilter` | filterable, with one typed builder per column |
+| `WidgetFilter` | `@queryFilter` | filterable, one variant and one builder per column |
 | `WidgetOrderField` | `@queryOrderBy` | orderable, with `WidgetOrder` as the clause it builds |
 
 A column an `@inlined` branch reaches through that branch is not selectable by
 name, so it is absent from `WidgetSelectField`. An entity that declares no
-filter or ordering column gets the matching enum with no variants, so a caller
-cannot name one.
+ordering column gets an `WidgetOrderField` with no variants, so a caller cannot
+name one. A filter needs no second enum: the `WidgetFilter` variant already
+names the column, so a column the spec does not mark `@queryFilter` has neither
+a variant nor a builder.
 
-Every enum carries `ALL`, `as_str`, and `Display`, plus the helpers its
-capability needs:
+The select and order enums carry `ALL`, `as_str`, and `Display`, plus the helper
+their capability needs:
 
 ```rust
 WidgetSelectField::Notes.select();                          // SelectColumn::Name("notes")
-WidgetFilterField::TENANT_ID.eq(&tenant_id);                // a WidgetFilter for tenantId
-WidgetFilterField::ID.any([first_id, second_id]);           // "id" = ANY($1)
-WidgetFilterField::DELETED_AT.is_null();                    // "deletedAt" is null
 WidgetOrderField::CreatedAt.desc();                         // "createdAt" DESC
 ```
 
-A filter field is reached through a constant named for its column, and that
-constant returns a builder of the column's own value type; `sql_type()` maps the
-enum variant to the type the driver binds. The filter builders are covered under
-"Values".
+The filter builders are covered under "Values".
 
 ## Values
 
@@ -93,16 +160,19 @@ value the column does not accept: `{"tenantId": {"eq": true}}` fails to
 deserialize, and the message names the expected type. Nothing is coerced and
 nothing has to be checked later.
 
-The builders are the ergonomic route to a variant. `WidgetFilterField::TENANT_ID`
-returns the `TenantId` builder, so `eq` and `ne` take `impl Borrow<TenantId>`
-(a value or a reference to one) and are infallible:
+The builders are the ergonomic route to a variant. `WidgetFilter::TENANT_ID` is
+the `TenantId` builder, so `eq` and `ne` take `impl Borrow<TenantId>` (a value or
+a reference to one) and are infallible:
 
 ```rust
-WidgetFilterField::TENANT_ID.eq(&tenant_id)                      // { "tenantId": { "eq": "…" } }
-WidgetFilterField::ID.any([first_id, second_id])                 // { "id": { "any": ["…", "…"] } }
-WidgetFilterField::DELETED_AT.is_null()                          // { "deletedAt": "isNull" }
-WidgetFilterField::NOTES.eq("draft")                             // a plain string column
+WidgetFilter::TENANT_ID.eq(&tenant_id)                           // { "tenantId": { "eq": "…" } }
+WidgetFilter::ID.any([first_id, second_id])                      // { "id": { "any": ["…", "…"] } }
+WidgetFilter::DELETED_AT.is_null()                               // { "deletedAt": "isNull" }
+WidgetFilter::NOTES.eq("draft")                                  // a plain string column
 ```
+
+A builder is a zero-sized value, so the constant is the builder: there is no
+separate field type to name the column twice.
 
 Passing a `CustomerId` to the `TenantId` builder does not compile, and the
 builder cannot reach a column the spec does not mark `@queryFilter`.
@@ -112,8 +182,8 @@ its own column type:
 
 ```rust
 WidgetFilter::or([
-    WidgetFilterField::NUMBER.is_null(),
-    WidgetFilterField::SUPPLIER_ID.is_not_null(),
+    WidgetFilter::NUMBER.is_null(),
+    WidgetFilter::SUPPLIER_ID.is_not_null(),
 ])
 ```
 
@@ -138,8 +208,8 @@ pub struct WidgetReadOptions {
 }
 ```
 
-An empty `select` selects every column. A `WidgetFilter` pairs a
-`WidgetFilterField` with an operator and a value, either directly or inside an
+An empty `select` selects every column. A `WidgetFilter` names a column through
+its variant and carries that column's comparison, either directly or inside an
 `and` / `or` group. A `WidgetOrder` pairs a `WidgetOrderField` with a direction
 and an optional nulls order. Both types only mention the entity's own columns,
 so an options value cannot name a column the spec forbids.
@@ -148,7 +218,7 @@ The options are built either literally or fluently:
 
 ```rust
 let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
-    .filter(WidgetFilterField::TENANT_ID.eq(&tenant_id))
+    .filter(WidgetFilter::TENANT_ID.eq(&tenant_id))
     .order(WidgetOrderField::CreatedAt.desc().nulls_last())
     .limit(50);
 ```

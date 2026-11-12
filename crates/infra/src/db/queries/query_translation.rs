@@ -54,151 +54,6 @@ impl std::fmt::Display for TranslationSelectField {
     }
 }
 
-/// A column of `Translation` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum TranslationFilterField {
-    #[serde(rename = "lang")]
-    Lang,
-    #[serde(rename = "key")]
-    Key,
-}
-
-impl TranslationFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Lang,
-        Self::Key,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Lang => "lang",
-            Self::Key => "key",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Lang => SqlType::Text,
-            Self::Key => SqlType::Text,
-        }
-    }
-}
-
-impl std::fmt::Display for TranslationFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl TranslationFilterField {
-    /// The `lang` typed filter builder.
-    pub const LANG: TranslationLangFilter = TranslationLangFilter(Self::Lang);
-    /// The `key` typed filter builder.
-    pub const KEY: TranslationKeyFilter = TranslationKeyFilter(Self::Key);
-}
-
-/// The `lang` filter of `Translation`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TranslationLangFilter(TranslationFilterField);
-
-impl TranslationLangFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> TranslationFilterField {
-        self.0
-    }
-
-    /// `lang = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<String>) -> TranslationFilter {
-        TranslationFilter::Lang(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `lang <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<String>) -> TranslationFilter {
-        TranslationFilter::Lang(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `lang = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<String>>) -> TranslationFilter {
-        TranslationFilter::Lang(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `lang is null`.
-    #[must_use]
-    pub fn is_null(self) -> TranslationFilter {
-        TranslationFilter::Lang(Comparison::IsNull)
-    }
-
-    /// `lang is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> TranslationFilter {
-        TranslationFilter::Lang(Comparison::IsNotNull)
-    }
-}
-
-/// The `key` filter of `Translation`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct TranslationKeyFilter(TranslationFilterField);
-
-impl TranslationKeyFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> TranslationFilterField {
-        self.0
-    }
-
-    /// `key = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<String>) -> TranslationFilter {
-        TranslationFilter::Key(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `key <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<String>) -> TranslationFilter {
-        TranslationFilter::Key(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `key = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<String>>) -> TranslationFilter {
-        TranslationFilter::Key(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `key is null`.
-    #[must_use]
-    pub fn is_null(self) -> TranslationFilter {
-        TranslationFilter::Key(Comparison::IsNull)
-    }
-
-    /// `key is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> TranslationFilter {
-        TranslationFilter::Key(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `Translation`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -253,6 +108,95 @@ impl TranslationFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl TranslationFilter {
+    /// The `lang` typed filter builder.
+    pub const LANG: TranslationLangFilter = TranslationLangFilter;
+    /// The `key` typed filter builder.
+    pub const KEY: TranslationKeyFilter = TranslationKeyFilter;
+}
+
+/// The `lang` filter of `Translation`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TranslationLangFilter;
+
+impl TranslationLangFilter {
+    /// `lang = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `lang <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `lang = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<String>>) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `lang is null`.
+    #[must_use]
+    pub fn is_null(self) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::IsNull)
+    }
+
+    /// `lang is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> TranslationFilter {
+        TranslationFilter::Lang(Comparison::IsNotNull)
+    }
+}
+
+/// The `key` filter of `Translation`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TranslationKeyFilter;
+
+impl TranslationKeyFilter {
+    /// `key = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `key <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<String>) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `key = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<String>>) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `key is null`.
+    #[must_use]
+    pub fn is_null(self) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::IsNull)
+    }
+
+    /// `key is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> TranslationFilter {
+        TranslationFilter::Key(Comparison::IsNotNull)
     }
 }
 
@@ -343,7 +287,7 @@ pub struct TranslationReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<TranslationSelectField>,
-    /// The filters, combined with `and`; each is built by a `TranslationFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `TranslationFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<TranslationFilter>,
     /// The ordering clauses, in order.
@@ -367,7 +311,7 @@ impl TranslationReadOptions {
         }
     }
 
-    /// Add a filter, built by a `TranslationFilterField` helper.
+    /// Add a filter, built by a `TranslationFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: TranslationFilter) -> Self {
         self.filters.push(filter);

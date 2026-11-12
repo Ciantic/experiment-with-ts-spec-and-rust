@@ -92,151 +92,6 @@ impl std::fmt::Display for CustomerSelectField {
     }
 }
 
-/// A column of `Customer` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum CustomerFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-}
-
-impl CustomerFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::TenantId => SqlType::Uuid,
-        }
-    }
-}
-
-impl std::fmt::Display for CustomerFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl CustomerFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: CustomerIdFilter = CustomerIdFilter(Self::Id);
-    /// The `tenantId` typed filter builder.
-    pub const TENANT_ID: CustomerTenantIdFilter = CustomerTenantIdFilter(Self::TenantId);
-}
-
-/// The `id` filter of `Customer`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CustomerIdFilter(CustomerFilterField);
-
-impl CustomerIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> CustomerFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<CustomerId>) -> CustomerFilter {
-        CustomerFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<CustomerId>) -> CustomerFilter {
-        CustomerFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<CustomerId>>) -> CustomerFilter {
-        CustomerFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> CustomerFilter {
-        CustomerFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> CustomerFilter {
-        CustomerFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `tenantId` filter of `Customer`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CustomerTenantIdFilter(CustomerFilterField);
-
-impl CustomerTenantIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> CustomerFilterField {
-        self.0
-    }
-
-    /// `tenantId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<TenantId>) -> CustomerFilter {
-        CustomerFilter::TenantId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `tenantId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<TenantId>) -> CustomerFilter {
-        CustomerFilter::TenantId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `tenantId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> CustomerFilter {
-        CustomerFilter::TenantId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `tenantId is null`.
-    #[must_use]
-    pub fn is_null(self) -> CustomerFilter {
-        CustomerFilter::TenantId(Comparison::IsNull)
-    }
-
-    /// `tenantId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> CustomerFilter {
-        CustomerFilter::TenantId(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `Customer`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -293,6 +148,95 @@ impl CustomerFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl CustomerFilter {
+    /// The `id` typed filter builder.
+    pub const ID: CustomerIdFilter = CustomerIdFilter;
+    /// The `tenantId` typed filter builder.
+    pub const TENANT_ID: CustomerTenantIdFilter = CustomerTenantIdFilter;
+}
+
+/// The `id` filter of `Customer`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CustomerIdFilter;
+
+impl CustomerIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<CustomerId>) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<CustomerId>) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<CustomerId>>) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> CustomerFilter {
+        CustomerFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `tenantId` filter of `Customer`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CustomerTenantIdFilter;
+
+impl CustomerTenantIdFilter {
+    /// `tenantId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<TenantId>) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `tenantId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<TenantId>) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `tenantId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<TenantId>>) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `tenantId is null`.
+    #[must_use]
+    pub fn is_null(self) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::IsNull)
+    }
+
+    /// `tenantId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> CustomerFilter {
+        CustomerFilter::TenantId(Comparison::IsNotNull)
     }
 }
 
@@ -383,7 +327,7 @@ pub struct CustomerReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<CustomerSelectField>,
-    /// The filters, combined with `and`; each is built by a `CustomerFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `CustomerFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<CustomerFilter>,
     /// The ordering clauses, in order.
@@ -407,7 +351,7 @@ impl CustomerReadOptions {
         }
     }
 
-    /// Add a filter, built by a `CustomerFilterField` helper.
+    /// Add a filter, built by a `CustomerFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: CustomerFilter) -> Self {
         self.filters.push(filter);

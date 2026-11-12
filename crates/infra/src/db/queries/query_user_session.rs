@@ -77,211 +77,6 @@ impl std::fmt::Display for UserSessionSelectField {
     }
 }
 
-/// A column of `UserSession` a read may filter on, from `@queryFilter`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum UserSessionFilterField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "userId")]
-    UserId,
-    #[serde(rename = "tokenHash")]
-    TokenHash,
-}
-
-impl UserSessionFilterField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::UserId,
-        Self::TokenHash,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::UserId => "userId",
-            Self::TokenHash => "tokenHash",
-        }
-    }
-
-    /// The Postgres type this column binds as.
-    #[must_use]
-    pub const fn sql_type(self) -> SqlType {
-        match self {
-            Self::Id => SqlType::Uuid,
-            Self::UserId => SqlType::Uuid,
-            Self::TokenHash => SqlType::Text,
-        }
-    }
-}
-
-impl std::fmt::Display for UserSessionFilterField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl UserSessionFilterField {
-    /// The `id` typed filter builder.
-    pub const ID: UserSessionIdFilter = UserSessionIdFilter(Self::Id);
-    /// The `userId` typed filter builder.
-    pub const USER_ID: UserSessionUserIdFilter = UserSessionUserIdFilter(Self::UserId);
-    /// The `tokenHash` typed filter builder.
-    pub const TOKEN_HASH: UserSessionTokenHashFilter = UserSessionTokenHashFilter(Self::TokenHash);
-}
-
-/// The `id` filter of `UserSession`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct UserSessionIdFilter(UserSessionFilterField);
-
-impl UserSessionIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> UserSessionFilterField {
-        self.0
-    }
-
-    /// `id = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<UserSessionId>) -> UserSessionFilter {
-        UserSessionFilter::Id(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `id <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<UserSessionId>) -> UserSessionFilter {
-        UserSessionFilter::Id(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `id = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<UserSessionId>>,
-    ) -> UserSessionFilter {
-        UserSessionFilter::Id(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `id is null`.
-    #[must_use]
-    pub fn is_null(self) -> UserSessionFilter {
-        UserSessionFilter::Id(Comparison::IsNull)
-    }
-
-    /// `id is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> UserSessionFilter {
-        UserSessionFilter::Id(Comparison::IsNotNull)
-    }
-}
-
-/// The `userId` filter of `UserSession`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct UserSessionUserIdFilter(UserSessionFilterField);
-
-impl UserSessionUserIdFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> UserSessionFilterField {
-        self.0
-    }
-
-    /// `userId = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<UserId>) -> UserSessionFilter {
-        UserSessionFilter::UserId(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `userId <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<UserId>) -> UserSessionFilter {
-        UserSessionFilter::UserId(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `userId = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<UserId>>) -> UserSessionFilter {
-        UserSessionFilter::UserId(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `userId is null`.
-    #[must_use]
-    pub fn is_null(self) -> UserSessionFilter {
-        UserSessionFilter::UserId(Comparison::IsNull)
-    }
-
-    /// `userId is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> UserSessionFilter {
-        UserSessionFilter::UserId(Comparison::IsNotNull)
-    }
-}
-
-/// The `tokenHash` filter of `UserSession`.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct UserSessionTokenHashFilter(UserSessionFilterField);
-
-impl UserSessionTokenHashFilter {
-    /// The column this filter targets.
-    #[must_use]
-    pub const fn field(self) -> UserSessionFilterField {
-        self.0
-    }
-
-    /// `tokenHash = value`.
-    #[must_use]
-    pub fn eq(self, value: impl Borrow<UserSessionTokenHash>) -> UserSessionFilter {
-        UserSessionFilter::TokenHash(Comparison::Eq(owned(value.borrow())))
-    }
-
-    /// `tokenHash <> value`.
-    #[must_use]
-    pub fn ne(self, value: impl Borrow<UserSessionTokenHash>) -> UserSessionFilter {
-        UserSessionFilter::TokenHash(Comparison::Ne(owned(value.borrow())))
-    }
-
-    /// `tokenHash = any(values)`, bound as one array parameter.
-    #[must_use]
-    pub fn any(
-        self,
-        values: impl IntoIterator<Item = impl Borrow<UserSessionTokenHash>>,
-    ) -> UserSessionFilter {
-        UserSessionFilter::TokenHash(Comparison::Any(
-            values
-                .into_iter()
-                .map(|value| owned(value.borrow()))
-                .collect(),
-        ))
-    }
-
-    /// `tokenHash is null`.
-    #[must_use]
-    pub fn is_null(self) -> UserSessionFilter {
-        UserSessionFilter::TokenHash(Comparison::IsNull)
-    }
-
-    /// `tokenHash is not null`.
-    #[must_use]
-    pub fn is_not_null(self) -> UserSessionFilter {
-        UserSessionFilter::TokenHash(Comparison::IsNotNull)
-    }
-}
-
 /// A filter over `UserSession`: a comparison on one of its columns, or a group of them.
 /// The read's filters are combined with `and`. Each variant's value has that column's model type,
 /// so a JSON payload cannot supply a value the column does not accept. See docs/rust-queries.md.
@@ -343,6 +138,144 @@ impl UserSessionFilter {
             typed.push(filter.into_typed_filter()?);
         }
         Ok(TypedFilter::group(combinator, typed))
+    }
+}
+
+impl UserSessionFilter {
+    /// The `id` typed filter builder.
+    pub const ID: UserSessionIdFilter = UserSessionIdFilter;
+    /// The `userId` typed filter builder.
+    pub const USER_ID: UserSessionUserIdFilter = UserSessionUserIdFilter;
+    /// The `tokenHash` typed filter builder.
+    pub const TOKEN_HASH: UserSessionTokenHashFilter = UserSessionTokenHashFilter;
+}
+
+/// The `id` filter of `UserSession`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UserSessionIdFilter;
+
+impl UserSessionIdFilter {
+    /// `id = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<UserSessionId>) -> UserSessionFilter {
+        UserSessionFilter::Id(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `id <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<UserSessionId>) -> UserSessionFilter {
+        UserSessionFilter::Id(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `id = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<UserSessionId>>,
+    ) -> UserSessionFilter {
+        UserSessionFilter::Id(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `id is null`.
+    #[must_use]
+    pub fn is_null(self) -> UserSessionFilter {
+        UserSessionFilter::Id(Comparison::IsNull)
+    }
+
+    /// `id is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> UserSessionFilter {
+        UserSessionFilter::Id(Comparison::IsNotNull)
+    }
+}
+
+/// The `userId` filter of `UserSession`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UserSessionUserIdFilter;
+
+impl UserSessionUserIdFilter {
+    /// `userId = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<UserId>) -> UserSessionFilter {
+        UserSessionFilter::UserId(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `userId <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<UserId>) -> UserSessionFilter {
+        UserSessionFilter::UserId(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `userId = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(self, values: impl IntoIterator<Item = impl Borrow<UserId>>) -> UserSessionFilter {
+        UserSessionFilter::UserId(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `userId is null`.
+    #[must_use]
+    pub fn is_null(self) -> UserSessionFilter {
+        UserSessionFilter::UserId(Comparison::IsNull)
+    }
+
+    /// `userId is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> UserSessionFilter {
+        UserSessionFilter::UserId(Comparison::IsNotNull)
+    }
+}
+
+/// The `tokenHash` filter of `UserSession`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UserSessionTokenHashFilter;
+
+impl UserSessionTokenHashFilter {
+    /// `tokenHash = value`.
+    #[must_use]
+    pub fn eq(self, value: impl Borrow<UserSessionTokenHash>) -> UserSessionFilter {
+        UserSessionFilter::TokenHash(Comparison::Eq(owned(value.borrow())))
+    }
+
+    /// `tokenHash <> value`.
+    #[must_use]
+    pub fn ne(self, value: impl Borrow<UserSessionTokenHash>) -> UserSessionFilter {
+        UserSessionFilter::TokenHash(Comparison::Ne(owned(value.borrow())))
+    }
+
+    /// `tokenHash = any(values)`, bound as one array parameter.
+    #[must_use]
+    pub fn any(
+        self,
+        values: impl IntoIterator<Item = impl Borrow<UserSessionTokenHash>>,
+    ) -> UserSessionFilter {
+        UserSessionFilter::TokenHash(Comparison::Any(
+            values
+                .into_iter()
+                .map(|value| owned(value.borrow()))
+                .collect(),
+        ))
+    }
+
+    /// `tokenHash is null`.
+    #[must_use]
+    pub fn is_null(self) -> UserSessionFilter {
+        UserSessionFilter::TokenHash(Comparison::IsNull)
+    }
+
+    /// `tokenHash is not null`.
+    #[must_use]
+    pub fn is_not_null(self) -> UserSessionFilter {
+        UserSessionFilter::TokenHash(Comparison::IsNotNull)
     }
 }
 
@@ -433,7 +366,7 @@ pub struct UserSessionReadOptions {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub select: Vec<UserSessionSelectField>,
-    /// The filters, combined with `and`; each is built by a `UserSessionFilterField` helper.
+    /// The filters, combined with `and`; each is built by a `UserSessionFilter` variant's builder.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub filters: Vec<UserSessionFilter>,
     /// The ordering clauses, in order.
@@ -457,7 +390,7 @@ impl UserSessionReadOptions {
         }
     }
 
-    /// Add a filter, built by a `UserSessionFilterField` helper.
+    /// Add a filter, built by a `UserSessionFilter` variant's builder.
     #[must_use]
     pub fn filter(mut self, filter: UserSessionFilter) -> Self {
         self.filters.push(filter);

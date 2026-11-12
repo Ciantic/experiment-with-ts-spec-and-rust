@@ -125,8 +125,8 @@ export function orderFields(table: Table): string[] {
     return table.columns.filter((column) => column.queryOrder !== undefined).map((column) => column.name);
 }
 
-/** The enum name of one field set, e.g. `Invoice` + `Filter` -> `InvoiceFilterField`. */
-export function fieldEnumName(entity: string, kind: "Select" | "Filter" | "Order"): string {
+/** The enum name of one field set, e.g. `Invoice` + `Select` -> `InvoiceSelectField`. */
+export function fieldEnumName(entity: string, kind: "Select" | "Order"): string {
     return `${entity}${kind}Field`;
 }
 
@@ -142,7 +142,7 @@ export interface FieldInfo {
 }
 
 /** Render an enum of one entity's fields: the columns it names, plus the helpers the caller builds with. */
-function renderFieldEnum(entity: string, kind: "Select" | "Filter" | "Order", fields: FieldInfo[], helpers: string[]): string[] {
+function renderFieldEnum(entity: string, kind: "Select" | "Order", fields: FieldInfo[], helpers: string[]): string[] {
     const name = fieldEnumName(entity, kind);
     const lines: string[] = fields.length === 0 ? [`pub enum ${name} {}`] : [`pub enum ${name} {`];
     for (const field of fields) {
@@ -178,18 +178,6 @@ function renderFieldEnum(entity: string, kind: "Select" | "Filter" | "Order", fi
         lines.push("        match self {");
         for (const field of fields) {
             lines.push(`            Self::${fieldVariant(field.name)} => ${JSON.stringify(field.name)},`);
-        }
-        lines.push("        }");
-        lines.push("    }");
-    }
-    if (kind === "Filter") {
-        lines.push("");
-        lines.push("    /// The Postgres type this column binds as.");
-        lines.push("    #[must_use]");
-        lines.push("    pub const fn sql_type(self) -> SqlType {");
-        lines.push("        match self {");
-        for (const field of fields) {
-            lines.push(`            Self::${fieldVariant(field.name)} => SqlType::${field.sqlType ?? "Text"},`);
         }
         lines.push("        }");
         lines.push("    }");
@@ -351,15 +339,9 @@ function renderFilterBuilder(entity: string, field: FilterFieldInfo): string[] {
     return [
         `/// The \`${field.name}\` filter of \`${entity}\`.`,
         "#[derive(Clone, Copy, Debug, Eq, PartialEq)]",
-        `pub struct ${name}(${entity}FilterField);`,
+        `pub struct ${name};`,
         "",
         `impl ${name} {`,
-        "    /// The column this filter targets.",
-        "    #[must_use]",
-        `    pub const fn field(self) -> ${entity}FilterField {`,
-        "        self.0",
-        "    }",
-        "",
         `    /// \`${field.name} = value\`.`,
         "    #[must_use]",
         ...method("eq", ["self", `value: impl Borrow<${value}>`], filter),
@@ -404,21 +386,21 @@ function renderFilterBuilder(entity: string, field: FilterFieldInfo): string[] {
 
 /** Render the typed builders of every filterable field, plus the constant each is reached through. */
 export function renderFilterBuilders(entity: string, fields: FilterFieldInfo[]): string[] {
-    const enumName = `${entity}FilterField`;
+    const filter = `${entity}Filter`;
     const lines: string[] = [];
 
     if (fields.length > 0) {
-        lines.push(`impl ${enumName} {`);
+        lines.push(`impl ${filter} {`);
         for (const field of fields) {
             const builder = filterBuilderName(entity, field.name);
             const constant = filterConstantName(field.name);
-            const oneLine = `    pub const ${constant}: ${builder} = ${builder}(Self::${fieldVariant(field.name)});`;
+            const oneLine = `    pub const ${constant}: ${builder} = ${builder};`;
             lines.push(`    /// The \`${field.name}\` typed filter builder.`);
             if (oneLine.length <= MAX_LINE_WIDTH) {
                 lines.push(oneLine);
             } else {
                 lines.push(`    pub const ${constant}: ${builder} =`);
-                lines.push(`        ${builder}(Self::${fieldVariant(field.name)});`);
+                lines.push(`        ${builder};`);
             }
         }
         lines.push("}");
@@ -524,7 +506,7 @@ function renderReadOptions(entity: string): string[] {
         "    /// The selected columns; empty (or omitted) selects every column.",
         '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
         `    pub select: Vec<${select}>,`,
-        `    /// The filters, combined with \`and\`; each is built by a \`${entity}FilterField\` helper.`,
+        `    /// The filters, combined with \`and\`; each is built by a \`${entity}Filter\` variant's builder.`,
         '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
         `    pub filters: Vec<${entity}Filter>,`,
         "    /// The ordering clauses, in order.",
@@ -548,7 +530,7 @@ function renderReadOptions(entity: string): string[] {
         "        }",
         "    }",
         "",
-        `    /// Add a filter, built by a \`${entity}FilterField\` helper.`,
+        `    /// Add a filter, built by a \`${entity}Filter\` variant's builder.`,
         "    #[must_use]",
         `    pub fn filter(mut self, filter: ${entity}Filter) -> Self {`,
         "        self.filters.push(filter);",
@@ -630,13 +612,9 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const selectable: FieldInfo[] = selectableFields(table).map((name) => ({ name }));
     lines.push(...renderFieldEnum(entity, "Select", selectable, selectHelper()));
     lines.push("");
-    lines.push(`/// A column of \`${entity}\` a read may filter on, from \`@queryFilter\`.`);
-    lines.push(...fieldEnumDerive());
-    lines.push(...renderFieldEnum(entity, "Filter", filters, []));
+    lines.push(...renderFilterStruct(entity, filters));
     lines.push("");
     lines.push(...renderFilterBuilders(entity, filters));
-    lines.push("");
-    lines.push(...renderFilterStruct(entity, filters));
     lines.push("");
     lines.push(`/// A column of \`${entity}\` a read may order by, from \`@queryOrderBy\`.`);
     lines.push(...fieldEnumDerive());
