@@ -1835,7 +1835,7 @@ describe("generateSchema defaults", () => {
         expect(sql).toContain('"at" timestamptz not null default now()');
     });
 
-    it("keeps a defaulted column not null even when the field is optional", () => {
+    it("keeps a defaulted column nullable when the field is optional", () => {
         const { sql } = generate({
             entities: {
                 Thing: `/** @entity */\nexport interface Thing {
@@ -1847,8 +1847,8 @@ describe("generateSchema defaults", () => {
             },
         });
 
-        expect(sql).toContain('"at" timestamptz not null default now()');
-        expect(sql).not.toContain('"at" timestamptz default now()');
+        expect(sql).toContain('"at" timestamptz default now()');
+        expect(sql).not.toContain('"at" timestamptz not null default now()');
     });
 
     it("emits no default when @pgDefault is absent", () => {

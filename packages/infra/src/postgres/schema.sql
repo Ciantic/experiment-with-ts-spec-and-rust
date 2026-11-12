@@ -128,7 +128,7 @@ create table "invoice" (
     "sellerId" uuid,
     "language" text,
     "issueDate" timestamptz,
-    "dueDate" timestamptz,
+    "dueDate" timestamptz default (now() + interval '14 days'),
     "netAmount" decimal,
     "taxAmount" decimal,
     "totalAmount" decimal generated always as ("netAmount" + "taxAmount") virtual,

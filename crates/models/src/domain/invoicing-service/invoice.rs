@@ -116,8 +116,8 @@ pub struct InvoiceInsert {
     pub language: Option<Language>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub issue_date: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub due_date: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub due_date: Partial<Option<chrono::DateTime<chrono::Utc>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,8 +146,8 @@ pub struct InvoiceUpsert {
     pub language: Option<Language>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub issue_date: Option<chrono::DateTime<chrono::Utc>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub due_date: Option<chrono::DateTime<chrono::Utc>>,
+    #[serde(default, skip_serializing_if = "Partial::is_unset")]
+    pub due_date: Partial<Option<chrono::DateTime<chrono::Utc>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

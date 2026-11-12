@@ -70,7 +70,9 @@ error rather than a silently dropped key.
   (an identity key, a virtual generated column, a nullable computation) are
   absent. A field whose column has a fallback — `@pgDefault`, `@createdAt`,
   `@updatedAt`, or a defaulted `@version` — is `Option<T>`, because omitting it
-  takes the column default.
+  takes the column default; a nullable field that also has a fallback is
+  `Partial<Option<T>>` instead, so a null stays expressible. See "Null and
+  absence in a create".
 - **Upsert.** The create's set, with the key and the `@version` required: an
   upsert claims the row it replaces. An identity key is named here even though a
   create leaves it out, so the conflict has a target.
@@ -81,6 +83,28 @@ error rather than a silently dropped key.
 
 An `@inlined` field nests its target's write shape — `Option<AccountInsert>` —
 so the snapshot columns can only be given values a write would store.
+
+### Null and absence in a create
+
+A create writes a nullable column whether the caller omits the field or sends a
+`null`, so the two are one request (`docs/optionality.md`). The mapping follows
+that: a field that can be omitted and either be null or take a column default has
+three states, and a field without both of those has two.
+
+| Field | Create type | `Unset` / `None` | `Set(None)` | Value |
+| --- | --- | --- | --- | --- |
+| required, no default | `T` | — | — | the value |
+| required, defaulted | `Option<T>` | omit, take the default | — | the value |
+| nullable, no default | `Option<T>` | omit, which writes `NULL` | — | the value |
+| nullable, defaulted | `Partial<Option<T>>` | omit, take the default | write `NULL` | the value |
+
+Only the last row distinguishes omission from a null, so only it uses `Partial`:
+the two requests write different rows, and collapsing them would make the column's
+`NULL` unreachable from a create.
+
+The executor reads the column, not the Rust value, when it decides what an absent
+field means: a defaulted column binds a per-row presence flag so an omitted one
+takes its default, and a nullable column without a default binds `NULL` directly.
 
 ### The key
 

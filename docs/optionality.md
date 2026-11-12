@@ -12,19 +12,30 @@ there that was never absent.
 
 ## The database filling a column does not make the field optional
 
-Several tags make a column `not null` and supply a fallback when a write omits
-the field:
+Several tags own a column's value, so the column is `not null` whatever the
+field says:
 
+- `@primaryKey` — the key names the row, so it is never absent.
 - `@createdAt` and `@updatedAt` — `default now()`, and a generated write falls
   back to it. See `docs/timestamps.md`.
-- `@pgDefault` — the expression fills the column when a statement omits it.
-  The expression may come from the field's type, so every `UUIDv7` column has a
-  default unless its field overrides or clears it. See `docs/primitives.md`.
 - `@version` — `default 0` supplies the first revision. See `docs/versioning.md`.
+- `@pgAutoIncrement` — the database assigns the key. See `docs/auto-increment.md`.
 
 The column is `not null` because a value is guaranteed, so the field is
 required. The field says what the row has; the tags say what a write does when
 the field is absent.
+
+`@pgDefault` is not in that list. It fills a column a statement omits, but it
+leaves an explicit `null` alone, so it changes what a write does rather than
+whether the column can be null:
+
+- On a **required** field the column is `not null`, and the expression is the
+  value an omitted field gets. A `UUIDv7` column is the common case, since the
+  type supplies `uuidv7()` unless the field overrides or clears it. See
+  `docs/primitives.md`.
+- On an **optional** field the column stays nullable, and the expression is only
+  the fallback for an omission. The three states are distinct: omit takes the
+  default, `null` writes a null, and a value writes the value.
 
 ## The create is a different shape
 
@@ -41,6 +52,12 @@ So a defaulted `status` column is required in its entity and optional in
 defaulted `version`, which a seed or a backfill may supply. See
 `docs/validation.md` and `docs/repositories.md`.
 
+A nullable field that also has a default is the one place a create carries three
+states rather than two: omitting it takes the default, `null` writes a null, and
+a value writes the value. The generated write type says so — `T | null` rather
+than `T` — and the statement tests the field's presence before choosing between
+the value and the default.
+
 ## What stays optional
 
 A field whose column is nullable, which is how `@computed` values start life:
@@ -56,28 +73,30 @@ A field whose column is nullable, which is how `@computed` values start life:
 
 The read type is `T | undefined`, and a write takes the same two states meaning
 different things. A create writes a nullable column whether the caller omits the
-field or sends it, so `undefined` and `null` are one request there. A patch tells
-them apart: omitting the field leaves the stored value alone, and `null` clears
-the column, which is the only way to write a null
+field or sends it, so `undefined` and `null` are one request there — unless the
+column also has a default, where omitting it takes the default and `null` writes
+a null. A patch always tells them apart: omitting the field leaves the stored
+value alone, and `null` clears the column, which is the only way to write a null
 (`docs/repositories.md`).
 
 An upsert takes both like a create and stores them like one — it writes the row
-whole, so omitting the field and sending `null` are again one request. It accepts
-`null` anyway, because a caller holding a row from a form or another JSON surface
-carries `null` where a spec may carry an absent field.
+whole, so omitting the field and sending `null` are again one request unless the
+column has a default. It accepts `null` anyway, because a caller holding a row
+from a form or another JSON surface carries `null` where a spec may carry an
+absent field.
 
 ## Generation
 
-`scripts/infra/postgres-model.ts` makes a defaulted column `not null`
-whatever the field says, and a generator reads the tag, never the field name —
-so adding an entity never edits a generator. A field is therefore optional
-exactly when its column is nullable.
+`scripts/infra/postgres-model.ts` makes a column `not null` from the field's `?`
+and from the tags that own the value, never from `@pgDefault`, and a generator
+reads the tag, never the field name — so adding an entity never edits a
+generator. A field is therefore optional exactly when its column is nullable.
 
-`lint:spec` checks the direction a tag can force: a tag whose column is
-`not null` — `@primaryKey`, `@pgDefault`, `@createdAt`, `@updatedAt`, `@version`
-— may not sit on an optional field. The other direction is not reported, since no
-lint rule reads the DDL and the interface together: a required field on a
-nullable column passes.
+`lint:spec` checks the direction a tag can force: a tag that owns its column —
+`@primaryKey`, `@createdAt`, `@updatedAt`, `@version`, `@pgAutoIncrement` — may
+not sit on an optional field. The other direction is not reported, since no lint
+rule reads the DDL and the interface together: a required field on a nullable
+column passes.
 
 ## Gotchas
 

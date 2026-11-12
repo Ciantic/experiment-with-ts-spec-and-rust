@@ -11,7 +11,7 @@ const keyOf = (row: Record<string, unknown>): InvoicePrimaryKey => ({ id: row["i
 const keyName = (row: InvoiceUpsert): string => String(row.id);
 
 /** The parameters one row costs: one per bound array, so a chunk stays inside the limit. */
-const PARAMETERS_PER_ROW = 16;
+const PARAMETERS_PER_ROW = 17;
 
 /** The rows one statement carries, so its parameters stay inside MAX_STATEMENT_PARAMETERS. */
 const ROWS_PER_STATEMENT = Math.floor(MAX_STATEMENT_PARAMETERS / PARAMETERS_PER_ROW);
@@ -37,6 +37,7 @@ export async function upsertInvoice(db: SqlExecutor, rows: InvoiceUpsert[]): Pro
             const languageValues: Array<unknown> = [];
             const issueDateValues: Array<unknown> = [];
             const dueDateValues: Array<unknown> = [];
+            const dueDatePresent: boolean[] = [];
             const notesValues: Array<unknown> = [];
             const createdAtValues: Array<unknown> = [];
             const createdAtPresent: boolean[] = [];
@@ -54,6 +55,7 @@ export async function upsertInvoice(db: SqlExecutor, rows: InvoiceUpsert[]): Pro
                 languageValues.push(row.language ?? null);
                 issueDateValues.push(row.issueDate ?? null);
                 dueDateValues.push(row.dueDate ?? null);
+                dueDatePresent.push(row.dueDate !== undefined);
                 notesValues.push(row.notes ?? null);
                 createdAtValues.push(row.createdAt ?? null);
                 createdAtPresent.push(row.createdAt !== undefined);
@@ -71,14 +73,14 @@ export async function upsertInvoice(db: SqlExecutor, rows: InvoiceUpsert[]): Pro
                     'v."sellerId", ' +
                     'v."language", ' +
                     'v."issueDate", ' +
-                    'v."dueDate", ' +
+                    'case when v."dueDate#present" then v."dueDate" else (now() + interval \'14 days\') end, ' +
                     'v."notes", ' +
                     'case when v."createdAt#present" then v."createdAt" else now() end, ' +
                     'case when v."updatedAt#present" then v."updatedAt" else now() end, ' +
                     'v."deletedAt", ' +
                     'v."version" ' +
-                    'from unnest($1::uuid[], $2::bool[], $3::uuid[], $4::text[], $5::uuid[], $6::uuid[], $7::text[], $8::timestamptz[], $9::timestamptz[], $10::text[], $11::timestamptz[], $12::bool[], $13::timestamptz[], $14::bool[], $15::timestamptz[], $16::int8[]) as v(' +
-                    '"id", "id#present", "tenantId", "number", "customerId", "sellerId", "language", "issueDate", "dueDate", "notes", "createdAt", "createdAt#present", "updatedAt", "updatedAt#present", "deletedAt", "version") ' +
+                    'from unnest($1::uuid[], $2::bool[], $3::uuid[], $4::text[], $5::uuid[], $6::uuid[], $7::text[], $8::timestamptz[], $9::timestamptz[], $10::bool[], $11::text[], $12::timestamptz[], $13::bool[], $14::timestamptz[], $15::bool[], $16::timestamptz[], $17::int8[]) as v(' +
+                    '"id", "id#present", "tenantId", "number", "customerId", "sellerId", "language", "issueDate", "dueDate", "dueDate#present", "notes", "createdAt", "createdAt#present", "updatedAt", "updatedAt#present", "deletedAt", "version") ' +
                     'on conflict ("id") do update set ' +
                     '"tenantId" = excluded."tenantId", ' +
                     '"number" = excluded."number", ' +
@@ -93,7 +95,7 @@ export async function upsertInvoice(db: SqlExecutor, rows: InvoiceUpsert[]): Pro
                     '"version" = u."version" + 1 ' +
                     'where u."version" = excluded."version" ' +
                     'returning u."id"',
-                [idValues, idPresent, tenantIdValues, numberValues, customerIdValues, sellerIdValues, languageValues, issueDateValues, dueDateValues, notesValues, createdAtValues, createdAtPresent, updatedAtValues, updatedAtPresent, deletedAtValues, versionValues],
+                [idValues, idPresent, tenantIdValues, numberValues, customerIdValues, sellerIdValues, languageValues, issueDateValues, dueDateValues, dueDatePresent, notesValues, createdAtValues, createdAtPresent, updatedAtValues, updatedAtPresent, deletedAtValues, versionValues],
             );
             const written = result.rows;
             const writtenKeys = new Set(written.map((row) => String(row["id"])));

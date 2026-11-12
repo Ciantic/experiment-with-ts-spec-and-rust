@@ -1176,7 +1176,6 @@ function lintForcedNotNull(tags: FieldTags, report: Report): void {
         ["createdAt", tags.createdAt],
         ["updatedAt", tags.updatedAt],
         ["version", tags.version],
-        ["pgDefault", tags.pgDefault],
         ["pgAutoIncrement", tags.pgAutoIncrement],
     ];
     for (const [name, tag] of forced) {
@@ -1184,10 +1183,6 @@ function lintForcedNotNull(tags: FieldTags, report: Report): void {
             report(`@${name} makes its column \`not null\`, so the field is required; drop the \`?\``, tag);
             return;
         }
-    }
-    // A default the field's type supplies makes the column `not null` just as a written tag does.
-    if (tags.effectiveDefault !== undefined) {
-        report("its type's @pgDefault makes its column `not null`, so the field is required; drop the `?`");
     }
 }
 

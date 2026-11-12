@@ -112,9 +112,10 @@ export interface Invoice {
     issueDate?: Date;
 
     /**
-     * The date by which payment is due.
-     * 
+     * The date by which payment is due: omitted takes the standard terms, and a null means no deadline.
+     *
      * @fieldName Due date
+     * @pgDefault (now() + interval '14 days')
      * @widget date
      */
     dueDate?: Date;

@@ -586,55 +586,78 @@ function selectType(property: SpecProperty, context: RenderContext): string {
     return property.optional ? `Partial<Option<${inner}>>` : `Partial<${inner}>`;
 }
 
-/** The fields a create writes, as the model's own omit and relax sets describe them. */
-function insertShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
-    const omitted = new Set(omittedFromInsert(entity).map((property) => property.name));
-    const defaulted = new Set(defaultedInsertProperties(entity).map((property) => property.name));
-    const inlined = new Set(inlinedFromInsert(entity).map((property) => property.name));
+/** The inner type of a written field: an `@inlined` branch nests its target's create shape. */
+function writeInnerType(property: SpecProperty, inlined: ReadonlySet<string>, context: RenderContext): string {
+    const target = entityNameOf(property.type, context.spec);
+    if (target !== undefined && inlined.has(property.name)) {
+        addStructImport(context, target, "Insert");
+        return `${target}Insert`;
+    }
+    return renderPropertyType(property, context);
+}
+
+/** The field sets a create or an upsert derives from the spec. */
+interface WriteSets {
+    omitted: ReadonlySet<string>;
+    defaulted: ReadonlySet<string>;
+    inlined: ReadonlySet<string>;
+    /** Columns the write must carry: the key it addresses and the version it claims. */
+    locked: ReadonlySet<string>;
+}
+
+/** The fields a create or an upsert writes, from the omit, relax, and lock sets it derives. */
+function writeShapes(entity: SpecInterface, sets: WriteSets, context: RenderContext): FieldShape[] {
     return entity.properties
-        .filter((property) => !omitted.has(property.name))
+        .filter((property) => !sets.omitted.has(property.name))
         .map((property) => {
-            const target = entityNameOf(property.type, context.spec);
-            let inner: string;
-            if (target !== undefined && inlined.has(property.name)) {
-                addStructImport(context, target, "Insert");
-                inner = `${target}Insert`;
-            } else {
-                inner = renderPropertyType(property, context);
+            const inner = writeInnerType(property, sets.inlined, context);
+            // A locked column addresses or claims the row, so neither omission nor a null can express it.
+            if (sets.locked.has(property.name)) {
+                return { property, rustType: inner };
             }
-            const optional = property.optional || defaulted.has(property.name);
-            return { property, rustType: optional ? `Option<${inner}>` : inner, optional };
+            // A nullable column with a default keeps three states: omitting it takes the default, and a null writes one.
+            if (property.optional && sets.defaulted.has(property.name)) {
+                return { property, rustType: `Partial<Option<${inner}>>`, present: true };
+            }
+            const optional = property.optional || sets.defaulted.has(property.name);
+            return { property, rustType: optional ? `Option<${inner}>` : inner, ...(optional ? { optional } : {}) };
         });
 }
 
-/** The fields an upsert writes: a create's set, plus the key an identity column assigns back. */
+/** The fields a create writes, as the model's own omit and relax sets describe them. */
+function insertShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
+    return writeShapes(
+        entity,
+        {
+            omitted: new Set(omittedFromInsert(entity).map((property) => property.name)),
+            defaulted: new Set(defaultedInsertProperties(entity).map((property) => property.name)),
+            inlined: new Set(inlinedFromInsert(entity).map((property) => property.name)),
+            locked: new Set(),
+        },
+        context,
+    );
+}
+
+/** The fields an upsert writes: a create's set, plus the key and version it claims. */
 function upsertShapes(entity: SpecInterface, context: RenderContext): FieldShape[] {
-    const omitted = new Set(
-        omittedFromInsert(entity)
-            .filter((property) => !property.tags.primaryKey)
-            .map((property) => property.name),
+    return writeShapes(
+        entity,
+        {
+            omitted: new Set(
+                omittedFromInsert(entity)
+                    .filter((property) => !property.tags.primaryKey)
+                    .map((property) => property.name),
+            ),
+            defaulted: new Set(defaultedInsertProperties(entity).map((property) => property.name)),
+            inlined: new Set(inlinedFromInsert(entity).map((property) => property.name)),
+            locked: new Set(
+                entity.properties
+                    .filter((property) => property.tags.primaryKey || property.tags.version)
+                    .map((property) => property.name),
+            ),
+        },
+        context,
     );
-    const defaulted = new Set(defaultedInsertProperties(entity).map((property) => property.name));
-    const inlined = new Set(inlinedFromInsert(entity).map((property) => property.name));
-    const locked = new Set(
-        entity.properties
-            .filter((property) => property.tags.primaryKey || property.tags.version)
-            .map((property) => property.name),
-    );
-    return entity.properties
-        .filter((property) => !omitted.has(property.name))
-        .map((property) => {
-            const target = entityNameOf(property.type, context.spec);
-            let inner: string;
-            if (target !== undefined && inlined.has(property.name)) {
-                addStructImport(context, target, "Insert");
-                inner = `${target}Insert`;
-            } else {
-                inner = renderPropertyType(property, context);
-            }
-            const optional = !locked.has(property.name) && (property.optional || defaulted.has(property.name));
-            return { property, rustType: optional ? `Option<${inner}>` : inner, ...(optional ? { optional } : {}) };
-        });
 }
 
 /** The fields a patch writes: a create's, less the creation clock, plus the key and version it locks. */

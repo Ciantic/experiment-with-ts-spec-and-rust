@@ -8,7 +8,7 @@ import { ShortWriteError } from "sdk/errors.ts";
 const keyOf = (row: Record<string, unknown>): InvoicePrimaryKey => ({ id: row["id"] as InvoicePrimaryKey["id"] });
 
 /** The parameters one row costs: one per bound array, so a chunk stays inside the limit. */
-const PARAMETERS_PER_ROW = 17;
+const PARAMETERS_PER_ROW = 18;
 
 /** The rows one insert carries, so its parameters stay inside MAX_STATEMENT_PARAMETERS. */
 const ROWS_PER_STATEMENT = Math.floor(MAX_STATEMENT_PARAMETERS / PARAMETERS_PER_ROW);
@@ -34,6 +34,7 @@ export async function createInvoice(db: SqlExecutor, rows: InvoiceInsert[]): Pro
             const languageValues: Array<unknown> = [];
             const issueDateValues: Array<unknown> = [];
             const dueDateValues: Array<unknown> = [];
+            const dueDatePresent: boolean[] = [];
             const notesValues: Array<unknown> = [];
             const createdAtValues: Array<unknown> = [];
             const createdAtPresent: boolean[] = [];
@@ -52,6 +53,7 @@ export async function createInvoice(db: SqlExecutor, rows: InvoiceInsert[]): Pro
                 languageValues.push(row.language ?? null);
                 issueDateValues.push(row.issueDate ?? null);
                 dueDateValues.push(row.dueDate ?? null);
+                dueDatePresent.push(row.dueDate !== undefined);
                 notesValues.push(row.notes ?? null);
                 createdAtValues.push(row.createdAt ?? null);
                 createdAtPresent.push(row.createdAt !== undefined);
@@ -70,16 +72,16 @@ export async function createInvoice(db: SqlExecutor, rows: InvoiceInsert[]): Pro
                     'v."sellerId", ' +
                     'v."language", ' +
                     'v."issueDate", ' +
-                    'v."dueDate", ' +
+                    'case when v."dueDate#present" then v."dueDate" else (now() + interval \'14 days\') end, ' +
                     'v."notes", ' +
                     'case when v."createdAt#present" then v."createdAt" else now() end, ' +
                     'case when v."updatedAt#present" then v."updatedAt" else now() end, ' +
                     'v."deletedAt", ' +
                     'case when v."version#present" then v."version" else 0 end ' +
-                    'from unnest($1::uuid[], $2::bool[], $3::uuid[], $4::text[], $5::uuid[], $6::uuid[], $7::text[], $8::timestamptz[], $9::timestamptz[], $10::text[], $11::timestamptz[], $12::bool[], $13::timestamptz[], $14::bool[], $15::timestamptz[], $16::int8[], $17::bool[]) as v(' +
-                    '"id", "id#present", "tenantId", "number", "customerId", "sellerId", "language", "issueDate", "dueDate", "notes", "createdAt", "createdAt#present", "updatedAt", "updatedAt#present", "deletedAt", "version", "version#present") ' +
+                    'from unnest($1::uuid[], $2::bool[], $3::uuid[], $4::text[], $5::uuid[], $6::uuid[], $7::text[], $8::timestamptz[], $9::timestamptz[], $10::bool[], $11::text[], $12::timestamptz[], $13::bool[], $14::timestamptz[], $15::bool[], $16::timestamptz[], $17::int8[], $18::bool[]) as v(' +
+                    '"id", "id#present", "tenantId", "number", "customerId", "sellerId", "language", "issueDate", "dueDate", "dueDate#present", "notes", "createdAt", "createdAt#present", "updatedAt", "updatedAt#present", "deletedAt", "version", "version#present") ' +
                     'returning "invoice"."id"',
-                [idValues, idPresent, tenantIdValues, numberValues, customerIdValues, sellerIdValues, languageValues, issueDateValues, dueDateValues, notesValues, createdAtValues, createdAtPresent, updatedAtValues, updatedAtPresent, deletedAtValues, versionValues, versionPresent],
+                [idValues, idPresent, tenantIdValues, numberValues, customerIdValues, sellerIdValues, languageValues, issueDateValues, dueDateValues, dueDatePresent, notesValues, createdAtValues, createdAtPresent, updatedAtValues, updatedAtPresent, deletedAtValues, versionValues, versionPresent],
             );
             const written = result.rows;
             if (written.length !== chunk.length) {

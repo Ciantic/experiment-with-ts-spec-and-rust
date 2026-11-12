@@ -921,7 +921,7 @@ export interface Versioned {
         ]);
     });
 
-    it("rejects @pgDefault on an optional field", () => {
+    it("accepts @pgDefault on an optional field, which keeps the column nullable", () => {
         const findings = lintSourceText(
             `/** @entity */
 export interface Defaulted {
@@ -934,9 +934,7 @@ export interface Defaulted {
             }`,
         );
 
-        expect(messages(findings)).toEqual([
-            "`source`: @pgDefault makes its column `not null`, so the field is required; drop the `?`",
-        ]);
+        expect(findings).toEqual([]);
     });
 
     it("rejects @primaryKey on an optional field", () => {
@@ -1049,7 +1047,7 @@ describe("type-level tags", () => {
         expect(findings).toEqual([]);
     });
 
-    it("reports an optional field whose type supplies a default", () => {
+    it("accepts an optional field whose type supplies a default", () => {
         const findings = lintSourceText(
             `/**
              * @primitive
@@ -1075,9 +1073,7 @@ describe("type-level tags", () => {
             }`,
         );
 
-        expect(messages(findings)).toEqual([
-            "`token`: its type's @pgDefault makes its column `not null`, so the field is required; drop the `?`",
-        ]);
+        expect(findings).toEqual([]);
     });
 
     it("reports a value on the @primitive marker", () => {

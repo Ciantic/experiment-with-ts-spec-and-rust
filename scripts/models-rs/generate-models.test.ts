@@ -93,6 +93,37 @@ function model() {
     return parseInMemorySpec(files, { sourceGlob: SPEC_GLOB });
 }
 
+/** An entity whose nullable field also carries a column default, so omitting it and sending a null differ. */
+const DEFAULTED = `
+import type { BrandedId } from "../primitives/BrandedId.ts";
+
+/** The unique identifier for a gadget. */
+export type GadgetId = BrandedId<"GadgetId">;
+
+/**
+ * @entity
+ */
+export interface Gadget {
+    /** @primaryKey */
+    id: GadgetId;
+
+    /**
+     * A nullable note whose column falls back to a default when a create omits it.
+     * @pgDefault 'none'
+     */
+    notes?: string;
+}
+`.trim();
+
+/** The generated module of the `Gadget` fixture. */
+function gadgetSource(): string {
+    const files = [
+        { filePath: join(SPEC_SRC_ROOT, "primitives/BrandedId.ts"), sourceFileText: BRANDED_ID },
+        { filePath: join(SPEC_SRC_ROOT, "gadget-service/Gadget.ts"), sourceFileText: DEFAULTED },
+    ];
+    return buildRustModels(parseInMemorySpec(files, { sourceGlob: SPEC_GLOB })).files.get("gadget-service/gadget.rs") ?? "";
+}
+
 /** The generated module of the `Widget` fixture. */
 function widgetSource(): string {
     return buildRustModels(model()).files.get("widget-service/widget.rs") ?? "";
@@ -232,5 +263,23 @@ describe("the key shape", () => {
         expect(key).toContain("pub id: WidgetId,");
         expect(key).not.toContain("pub name:");
         expect(key).not.toContain("pub version:");
+    });
+});
+
+describe("a nullable column that also has a default", () => {
+    it("keeps three states in a create, so a null survives beside an omission", () => {
+        expect(structOf(gadgetSource(), "GadgetInsert")).toContain("pub notes: Partial<Option<String>>,");
+    });
+
+    it("keeps the same three states in an upsert", () => {
+        expect(structOf(gadgetSource(), "GadgetUpsert")).toContain("pub notes: Partial<Option<String>>,");
+    });
+
+    it("leaves a plain optional column on Option, where omission and null are one request", () => {
+        expect(structOf(widgetSource(), "WidgetInsert")).toContain("pub notes: Option<String>,");
+    });
+
+    it("still reads as Option on the entity", () => {
+        expect(structOf(gadgetSource(), "Gadget")).toContain("pub notes: Option<String>,");
     });
 });
