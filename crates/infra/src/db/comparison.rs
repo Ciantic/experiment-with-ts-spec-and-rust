@@ -20,15 +20,6 @@ pub enum Comparison<T> {
     IsNotNull,
 }
 
-/// A borrowed model value as an owned one.
-///
-/// A generated builder receives `impl Borrow<T>` and must store a `T`. The type may or may not be
-/// `Copy`, so the clone lives here once rather than in every generated helper.
-#[must_use]
-pub fn owned<T: Clone>(value: &T) -> T {
-    value.clone()
-}
-
 #[cfg(test)]
 mod tests {
     use serde::{Deserialize, Serialize};

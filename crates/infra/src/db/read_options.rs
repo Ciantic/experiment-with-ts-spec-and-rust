@@ -90,6 +90,25 @@ impl TypedFilter {
         Ok(Self::condition(column, sql_type, operator, value))
     }
 
+    /// One bound of a `@queryWhere` column, e.g. `gte` or `lte`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`super::ReadError::Encode`] when the value has no JSON form.
+    pub(crate) fn bound<T: super::BindValue>(
+        column: &str,
+        sql_type: SqlType,
+        operator: FilterOperator,
+        value: T,
+    ) -> Result<Self, super::ReadError> {
+        Ok(Self::condition(
+            column,
+            sql_type,
+            operator,
+            Some(value.to_bind_value()?),
+        ))
+    }
+
     /// A nested `and` / `or` group.
     #[must_use]
     pub(crate) fn group(combinator: Combinator, filters: Vec<Self>) -> Self {
@@ -378,6 +397,57 @@ mod tests {
         );
         assert_eq!(planned.params[0].sql_type, SqlType::I64);
         assert_eq!(planned.params[1].sql_type, SqlType::Text);
+    }
+
+    #[test]
+    fn binds_a_range_as_two_conditions_on_one_column() {
+        let options = ReadOptions {
+            filters: vec![
+                TypedFilter::bound(
+                    "startsAt",
+                    SqlType::Timestamptz,
+                    FilterOperator::Gte,
+                    Value::Int(1),
+                )
+                .expect("an integer encodes"),
+                TypedFilter::bound(
+                    "startsAt",
+                    SqlType::Timestamptz,
+                    FilterOperator::Lte,
+                    Value::Int(2),
+                )
+                .expect("an integer encodes"),
+            ],
+            ..ReadOptions::default()
+        };
+
+        let planned = options.plan("widget", None).expect("the options are valid");
+
+        assert_eq!(
+            planned.sql,
+            r#"SELECT * FROM "widget" WHERE "startsAt" >= $1 AND "startsAt" <= $2"#
+        );
+        let types: Vec<SqlType> = planned.params.iter().map(|param| param.sql_type).collect();
+        assert_eq!(types, vec![SqlType::Timestamptz, SqlType::Timestamptz]);
+    }
+
+    #[test]
+    fn keeps_two_conditions_on_one_column() {
+        let options = ReadOptions {
+            filters: vec![
+                TypedFilter::condition("a", SqlType::I64, FilterOperator::Neq, Some(Value::Int(1))),
+                TypedFilter::condition("a", SqlType::I64, FilterOperator::Neq, Some(Value::Int(2))),
+            ],
+            ..ReadOptions::default()
+        };
+
+        let planned = options.plan("widget", None).expect("the options are valid");
+
+        assert_eq!(
+            planned.sql,
+            r#"SELECT * FROM "widget" WHERE "a" <> $1 AND "a" <> $2"#
+        );
+        assert_eq!(planned.params.len(), 2);
     }
 
     #[test]

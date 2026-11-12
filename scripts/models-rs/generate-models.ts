@@ -203,7 +203,7 @@ export function pascalName(name: string): string {
 }
 
 /** A field identifier, raw when it collides with a keyword. */
-function fieldIdentifier(name: string): string {
+export function fieldIdentifier(name: string): string {
     const snake = snakeName(name);
     return RESERVED.has(snake) ? `r#${snake}` : snake;
 }

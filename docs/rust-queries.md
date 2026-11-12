@@ -32,10 +32,11 @@ a driver itself.
 ## Using a read
 
 ```rust
-use infra::db::ReadError;
 use infra::db::queries::{
-    InvoiceFilter, InvoiceOrderField, InvoiceReadOptions, InvoiceSelectField, query_invoice,
+    InvoiceDeletedAtFilter, InvoiceOrderField, InvoiceReadOptions, InvoiceSelectField, InvoiceTenantIdFilter,
+    query_invoice,
 };
+use infra::db::{Comparison, ReadError};
 use models::domain::invoicing_service::invoice::InvoiceSelect;
 use models::domain::user_service::tenant::TenantId;
 use sqlx::PgPool;
@@ -52,8 +53,8 @@ async fn open_invoices(
         InvoiceSelectField::TotalAmount,
         InvoiceSelectField::CreatedAt,
     ])
-    .filter(InvoiceFilter::TENANT_ID.eq(tenant))
-    .filter(InvoiceFilter::DELETED_AT.is_null())
+    .filter(InvoiceTenantIdFilter(Comparison::Eq(tenant.clone())))
+    .filter(InvoiceDeletedAtFilter(Comparison::IsNull))
     .order(InvoiceOrderField::CreatedAt.desc().nulls_last())
     .limit(limit);
 
@@ -66,14 +67,40 @@ passes straight through. Each row arrives as `InvoiceSelect`, where a field the
 read did not select stays `Partial::Unset` — the caller can tell "not read" from
 "null" without a second query.
 
-One row is the first result of a limited read, since there is no separate `get`:
+Because `filter` takes `impl Into<InvoiceFilter>`, a column's own filter type can
+be passed straight in, and the same column may be filtered more than once:
 
 ```rust
 let options = InvoiceReadOptions::default()
-    .filter(InvoiceFilter::TENANT_ID.eq(tenant))
-    .filter(InvoiceFilter::ID.eq(id))
+    .filter(InvoiceTenantIdFilter(Comparison::Eq(tenant.clone())))
+    .filter(InvoiceTenantIdFilter(Comparison::Any(other_tenants.clone())))
+    .filter_or([
+        InvoiceTenantIdFilter(Comparison::Eq(tenant.clone())),
+        InvoiceTenantIdFilter(Comparison::Eq(other_tenant)),
+    ])
     .limit(1);
+```
 
+```
+SELECT * FROM "invoice"
+  WHERE "tenantId" = $1 AND "tenantId" = ANY($2)
+    AND ("tenantId" = $3 OR "tenantId" = $4)
+```
+
+`filter_or` and `filter_and` take an iterator whose items convert into
+`InvoiceFilter`, so a list of one column's type needs no conversion. A list that
+mixes columns converts each item, `InvoiceFilter::from(filter)`:
+
+```rust
+.filter_or([
+    InvoiceFilter::from(InvoiceDeletedAtFilter(Comparison::IsNotNull)),
+    InvoiceFilter::from(InvoiceTenantIdFilter(Comparison::Ne(tenant.clone()))),
+])
+```
+
+One row is the first result of a limited read, since there is no separate `get`:
+
+```rust
 let invoice = query_invoice(pool, options).await?.pop();
 ```
 
@@ -88,34 +115,22 @@ println!("{} {:?}", planned.sql, planned.params);
 //   ORDER BY "createdAt" DESC NULLS LAST LIMIT 25
 ```
 
-Filters combine with `and`; a nested group is an `InvoiceFilter`:
-
-```rust
-InvoiceReadOptions::default()
-    .filter(InvoiceFilter::TENANT_ID.eq(tenant))
-    .filter(InvoiceFilter::CUSTOMER_ID.any(customer_ids))
-    .filter(InvoiceFilter::or([
-        InvoiceFilter::SELLER_ID.is_not_null(),
-        InvoiceFilter::DELETED_AT.is_not_null(),
-    ]))
-```
-
 ## Typed fields
 
 Each module names the entity's columns once, as one type per capability:
 
-| Type | Built from | Fields |
+| Type | Built from | Shape |
 | --- | --- | --- |
-| `WidgetSelectField` | every column | selectable |
-| `WidgetFilter` | `@queryFilter` | filterable, one variant and one builder per column |
-| `WidgetOrderField` | `@queryOrderBy` | orderable, with `WidgetOrder` as the clause it builds |
+| `WidgetSelectField` | every column | one variant per selectable column |
+| `WidgetOrderField` | `@queryOrderBy` | one variant per orderable column, with `WidgetOrder` as the clause it builds |
+| `Widget<Title>Filter` | one column | one filterable column's comparisons |
+| `WidgetFilter` | `@queryFilter` and `@queryWhere` | one variant per filter column, plus `and` and `or` groups |
 
 A column an `@inlined` branch reaches through that branch is not selectable by
 name, so it is absent from `WidgetSelectField`. An entity that declares no
 ordering column gets an `WidgetOrderField` with no variants, so a caller cannot
-name one. A filter needs no second enum: the `WidgetFilter` variant already
-names the column, so a column the spec does not mark `@queryFilter` has neither
-a variant nor a builder.
+name one. A column the spec does not mark `@queryFilter` or `@queryWhere` has no
+filter type of its own, so there is nothing to pass to `filter`.
 
 The select and order enums carry `ALL`, `as_str`, and `Display`, plus the helper
 their capability needs:
@@ -125,22 +140,14 @@ WidgetSelectField::Notes.select();                          // SelectColumn::Nam
 WidgetOrderField::CreatedAt.desc();                         // "createdAt" DESC
 ```
 
-The filter builders are covered under "Values".
-
 ## Values
 
-A filter is an enum whose variant names the column, and whose payload has that
-column's model type:
+A filter is one comparison, on one column. Each filterable column has its own
+type, so a value of the wrong type does not compile, and a column the spec does
+not expose has no type to name:
 
 ```rust
-#[serde(rename_all = "camelCase")]
-pub enum WidgetFilter {
-    Id(Comparison<WidgetId>),
-    TenantId(Comparison<TenantId>),
-    DeletedAt(Comparison<chrono::DateTime<chrono::Utc>>),
-    And(Vec<Self>),
-    Or(Vec<Self>),
-}
+pub struct WidgetTenantIdFilter(pub Comparison<TenantId>);
 ```
 
 `Comparison<T>` is the operator vocabulary over one value type:
@@ -155,43 +162,82 @@ pub enum Comparison<T> {
 }
 ```
 
-Because the type parameter is the column's own type, a payload cannot carry a
-value the column does not accept: `{"tenantId": {"eq": true}}` fails to
-deserialize, and the message names the expected type. Nothing is coerced and
-nothing has to be checked later.
-
-The builders are the ergonomic route to a variant. `WidgetFilter::TENANT_ID` is
-the `TenantId` builder, so `eq` and `ne` take `impl Borrow<TenantId>` (a value or
-a reference to one) and are infallible:
+The umbrella enum collects every column's type, plus the groups:
 
 ```rust
-WidgetFilter::TENANT_ID.eq(&tenant_id)                           // { "tenantId": { "eq": "…" } }
-WidgetFilter::ID.any([first_id, second_id])                      // { "id": { "any": ["…", "…"] } }
-WidgetFilter::DELETED_AT.is_null()                               // { "deletedAt": "isNull" }
-WidgetFilter::NOTES.eq("draft")                                  // a plain string column
+#[serde(rename_all = "camelCase")]
+pub enum WidgetFilter {
+    Id(WidgetIdFilter),
+    TenantId(WidgetTenantIdFilter),
+    DeletedAt(WidgetDeletedAtFilter),
+    And(Vec<Self>),
+    Or(Vec<Self>),
+}
 ```
 
-A builder is a zero-sized value, so the constant is the builder: there is no
-separate field type to name the column twice.
+Every column type converts into it (`impl From<WidgetTenantIdFilter> for
+WidgetFilter`), so `filter` takes whichever the caller has.
 
-Passing a `CustomerId` to the `TenantId` builder does not compile, and the
-builder cannot reach a column the spec does not mark `@queryFilter`.
-
-`WidgetFilter::and(…)` and `WidgetFilter::or(…)` nest filters; each child keeps
-its own column type:
+Because the read's `filters` is a list combined with `and`, the same column may
+be filtered more than once:
 
 ```rust
-WidgetFilter::or([
-    WidgetFilter::NUMBER.is_null(),
-    WidgetFilter::SUPPLIER_ID.is_not_null(),
+WidgetReadOptions::default()
+    .filter(WidgetTenantIdFilter(Comparison::Eq(tenant.clone())))
+    .filter(WidgetTenantIdFilter(Comparison::Any(other_tenants)))
+// "tenantId" = $1 AND "tenantId" = ANY($2)
+```
+
+`filter_and` and `filter_or` take a set of filters:
+
+```rust
+.filter_or([
+    WidgetTenantIdFilter(Comparison::Eq(a)),
+    WidgetTenantIdFilter(Comparison::Eq(b)),
 ])
+// ("tenantId" = $1 OR "tenantId" = $2)
 ```
+
+An `And` group is flattened into the enclosing list, since a branch's children
+are already combined with `and`; an `Or` group stays parenthesised.
 
 Lowering a filter to the builder's statement happens once, inside the module:
-`WidgetFilter::into_typed_filter` maps each variant to its column name and
-`SqlType` and converts the typed value to a bind parameter. That conversion is
-the only fallible step, and only a value with no JSON form can fail it, so
-`ReadOptions` gains no validation of its own.
+`into_typed_filter` maps each set column to its column name and `SqlType` and
+converts the typed value to a bind parameter. It is the only fallible step, and
+only a value with no JSON form can fail it.
+
+## `@queryWhere` ranges
+
+A column annotated `@queryWhere` gets an enum of exactly the operators the spec
+whitelists, so one filter bounds the value from one side, and two filter it from
+both:
+
+```rust
+/// A comparison on `Widget.issueDate`, limited to its `@queryWhere` operators.
+pub enum WidgetIssueDateFilter {
+    Gte(chrono::DateTime<chrono::Utc>),
+    Lte(chrono::DateTime<chrono::Utc>),
+}
+```
+
+```rust
+WidgetReadOptions::default()
+    .filter(WidgetIssueDateFilter::Gte(from))
+    .filter(WidgetIssueDateFilter::Lte(to))
+// "issueDate" >= $1 AND "issueDate" <= $2
+```
+
+A null test is a variant with no value, matching the TypeScript `Where` shape:
+
+```rust
+WidgetConsumedAtFilter::IsNull
+// "consumedAt" IS NULL
+```
+
+The enum only names the operators the annotation declares: an `@queryWhere gte
+lte` column cannot be compared with `gt`, and the JSON decode rejects it. A
+column carrying both `@queryFilter` and `@queryWhere` is a generator error,
+because both would name the same filter type.
 
 ## Read options
 
@@ -208,17 +254,17 @@ pub struct WidgetReadOptions {
 }
 ```
 
-An empty `select` selects every column. A `WidgetFilter` names a column through
-its variant and carries that column's comparison, either directly or inside an
-`and` / `or` group. A `WidgetOrder` pairs a `WidgetOrderField` with a direction
-and an optional nulls order. Both types only mention the entity's own columns,
-so an options value cannot name a column the spec forbids.
+An empty `select` selects every column. A filter names one column and nests
+further filters in `and` or `or`. A `WidgetOrder` pairs a
+`WidgetOrderField` with a direction and an optional nulls order. Both types only
+mention the entity's own columns, so an options value cannot name a column the
+spec forbids.
 
 The options are built either literally or fluently:
 
 ```rust
 let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
-    .filter(WidgetFilter::TENANT_ID.eq(&tenant_id))
+    .filter(WidgetTenantIdFilter(Comparison::Eq(tenant_id)))
     .order(WidgetOrderField::CreatedAt.desc().nulls_last())
     .limit(50);
 ```
@@ -254,16 +300,18 @@ let back: WidgetReadOptions = serde_json::from_str(&json)?;
 assert_eq!(back, options);
 ```
 
-A field enum is its column name, a filter variant is the column it targets, and
-a comparison is the operator:
+A select field is its column name, a filter is one column with one comparison,
+and the comparison is the operator:
 
 ```json
 {
   "select": ["id", "number", "totalAmount", "createdAt"],
   "filters": [
     { "tenantId": { "eq": "…" } },
-    { "id": { "any": ["…", "…"] } },
     { "deletedAt": "isNull" },
+    { "id": { "any": ["…", "…"] } },
+    { "issueDate": { "gte": "2026-01-01T00:00:00Z" } },
+    { "issueDate": { "lte": "2026-02-01T00:00:00Z" } },
     { "or": [
         { "deletedAt": "isNull" },
         { "sellerId": "isNotNull" }
@@ -275,13 +323,17 @@ a comparison is the operator:
 }
 ```
 
+Each entry names one column, and the entries are combined with `and`, so a column
+filtered twice is two entries.
+
 Decoding rejects everything the entity's own types do not allow:
 
 - An unknown key in the options or in an ordering clause is an error.
 - A column the entity does not declare is an error, and so is a column that
   carries no `@queryFilter` in `filters` or no `@queryOrderBy` in `order`.
 - An operator the filter does not offer is an error, so a payload cannot reach a
-  comparison the spec does not allow.
+  comparison the spec does not allow. That includes a `@queryWhere` column
+  compared with an operator its annotation omits.
 - A value of the wrong type is an error at decode: `{"tenantId": {"eq": true}}`
   fails because a `TenantId` is not a boolean. Nothing is coerced and no
   separate validation pass is needed.

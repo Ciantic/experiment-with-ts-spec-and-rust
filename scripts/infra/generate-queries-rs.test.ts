@@ -49,6 +49,8 @@ export interface Invoice {
     updatedAt: Date;
     /** @queryFilter */
     deletedAt?: Date;
+    /** @queryWhere gte lte */
+    issueDate?: Date;
     customerName: string;
 }
 
@@ -93,6 +95,7 @@ const invoice = table(
         column("number", { queryOrder: { default: "asc" } }),
         column("updatedAt", { sqlType: "timestamptz", queryOrder: {} }),
         column("deletedAt", { sqlType: "timestamptz", notNull: false, queryFilter: { required: false } }),
+        column("issueDate", { sqlType: "timestamptz", notNull: false, where: ["gte", "lte"] }),
         column("customerName"),
     ],
     new Map([["snapshot", { kind: "inlined", table: "customer", columns: { name: "customerName" } }]]),
@@ -127,7 +130,7 @@ describe("sqlTypeVariant", () => {
 
 describe("selectableFields", () => {
     it("keeps every column a branch does not own", () => {
-        expect(selectableFields(invoice)).toEqual(["id", "tenantId", "number", "updatedAt", "deletedAt"]);
+        expect(selectableFields(invoice)).toEqual(["id", "tenantId", "number", "updatedAt", "deletedAt", "issueDate"]);
     });
 });
 
@@ -156,7 +159,7 @@ describe("renderQueryModule", () => {
 
         expect(code).toContain("pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {");
         expect(code).toContain(".map(|field| field.select())");
-        expect(code).toContain("filters.push(filter.into_typed_filter()?);");
+        expect(code).toContain("filters.extend(filter.into_typed_filters()?);");
         expect(code).toContain(".map(|order| order.into_sort())");
         expect(code).toContain('read.plan("invoice", None)');
     });
@@ -165,75 +168,60 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub fn with_select(fields: impl IntoIterator<Item = InvoiceSelectField>) -> Self");
-        expect(code).toContain("pub fn filter(mut self, filter: InvoiceFilter) -> Self");
+        expect(code).toContain("pub fn filter(mut self, filter: impl Into<InvoiceFilter>) -> Self");
+        expect(code).toContain("pub fn filter_and(");
+        expect(code).toContain("pub fn filter_or(");
         expect(code).toContain("pub fn order(mut self, order: InvoiceOrder) -> Self");
     });
 
-    it("names each filter's column and type when it lowers to the planner", () => {
+    it("accepts the same column twice, since the list is combined with and", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain('TypedFilter::comparison("tenantId", SqlType::Uuid, comparison)');
-        expect(code).toContain('TypedFilter::comparison("deletedAt", SqlType::Timestamptz, comparison)');
+        expect(code).toContain("self.filters.push(filter.into());");
+        expect(code).toContain("The same column may be filtered twice.");
+        expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
     });
 
-    it("makes each filter variant carry its column's model type", () => {
+    it("gives each filterable column a newtype over its own comparison", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub enum InvoiceFilter {");
-        expect(code).toContain("    Id(Comparison<InvoiceId>),");
-        expect(code).toContain("    TenantId(Comparison<TenantId>),");
-        expect(code).toContain("DeletedAt(Comparison<chrono::DateTime<chrono::Utc>>),");
-        expect(code).toContain('#[serde(rename_all = "camelCase")]');
+        expect(code).toContain("pub struct InvoiceTenantIdFilter(pub Comparison<TenantId>);");
+        expect(code).toContain("#[serde(transparent)]");
+        expect(code).not.toContain("pub tenant_id: Option<");
     });
 
-    it("carries no filter-field enum: the variant already names the column", () => {
+    it("names each column's type when it lowers to the planner", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).not.toContain("FilterField");
-        expect(code).toContain("pub struct InvoiceTenantIdFilter;");
-        expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter;");
+        expect(code).toContain('TypedFilter::comparison("tenantId", SqlType::Uuid, self.0)');
+        expect(code).toContain('TypedFilter::comparison("deletedAt", SqlType::Timestamptz, self.0)');
     });
 
-    it("reaches a variant through that column's typed builder", () => {
+    it("lets a where column carry exactly its whitelisted operator", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub const TENANT_ID: InvoiceTenantIdFilter = InvoiceTenantIdFilter;");
-        expect(code).toContain("pub fn eq(self, value: impl Borrow<TenantId>) -> InvoiceFilter {");
-        expect(code).toContain("InvoiceFilter::TenantId(Comparison::Eq(owned(value.borrow())))");
-        expect(code).toContain(".map(|value| owned(value.borrow()))");
+        expect(code).toContain("pub enum InvoiceIssueDateFilter {");
+        expect(code).toContain("Gte(chrono::DateTime<chrono::Utc>),");
+        expect(code).toContain("Lte(chrono::DateTime<chrono::Utc>),");
+        expect(code).not.toContain("Gt(chrono::DateTime<chrono::Utc>),");
+        expect(code).toContain("FilterOperator::Gte,");
     });
 
-    it("builds a value-carrying filter without a Result, since the type is checked on decode", () => {
+    it("converts every column type into the umbrella filter, so filter() takes it directly", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub fn eq(self, value: impl Borrow<InvoiceId>) -> InvoiceFilter {");
-        expect(code).not.toContain("pub fn eq(self, value: impl Borrow<InvoiceId>) -> Result<");
+        expect(code).toContain("impl From<InvoiceTenantIdFilter> for InvoiceFilter {");
+        expect(code).toContain("Self::TenantId(filter)");
+        expect(code).toContain("impl From<InvoiceIssueDateFilter> for InvoiceFilter {");
     });
 
-    it("keeps a null test as its own comparison variant", () => {
+    it("flattens an and group so its children stay separate conditions", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub fn is_null(self) -> InvoiceFilter {");
-        expect(code).toContain("InvoiceFilter::DeletedAt(Comparison::IsNull)");
-    });
-
-    it("keeps a raw column name out of the caller's filters", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("pub enum InvoiceFilter {");
-        expect(code).not.toContain("    pub filters: Vec<TypedFilter>,");
-        expect(code).not.toContain("pub fn filter(mut self, filter: TypedFilter) -> Self");
-        expect(code).not.toContain("pub fn condition(");
-    });
-
-    it("groups filters with and / or, each child keeping its column type", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("    And(Vec<Self>),");
-        expect(code).toContain("    Or(Vec<Self>),");
-        expect(code).toContain("pub fn and(filters: impl IntoIterator<Item = Self>) -> Self");
-        expect(code).toContain("pub fn or(filters: impl IntoIterator<Item = Self>) -> Self");
-        expect(code).toContain("Self::And(filters) => Self::group(Combinator::And, filters),");
+        expect(code).toContain("Self::And(filters) => Self::all(Combinator::And, filters),");
+        expect(code).toContain("Self::Or(filters) => Self::all(Combinator::Or, filters),");
+        expect(code).toContain("(Combinator::And, _) => typed,");
+        expect(code).toContain("_ => vec![TypedFilter::group(combinator, typed)],");
     });
 
     it("serializes each field enum as its column name", () => {
@@ -253,14 +241,6 @@ describe("renderQueryModule", () => {
         expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceReadOptions {');
         expect(code).toContain('#[serde(default, skip_serializing_if = "Vec::is_empty")]\n    pub select: Vec<InvoiceSelectField>,');
         expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]\n    pub limit: Option<u64>,');
-    });
-
-    it("tags each filter variant by its column, so a group and a condition share one enum", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain('#[serde(rename_all = "camelCase")]\npub enum InvoiceFilter {');
-        expect(code).toContain("    And(Vec<Self>),");
-        expect(code).toContain("    Or(Vec<Self>),");
     });
 
     it("serializes an ordering clause with a defaulted direction", () => {

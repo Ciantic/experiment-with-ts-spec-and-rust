@@ -9,7 +9,7 @@ mod sql_type;
 
 pub mod queries;
 
-pub use comparison::{Comparison, owned};
+pub use comparison::Comparison;
 pub use executor::{ReadError, Row, SqlExecutor, decode_rows};
 pub use read_options::{Param, PlannedQuery};
 pub use sql_type::SqlType;
