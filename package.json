@@ -28,6 +28,7 @@
     "generate:operation-routes": "node scripts/operations/generate-operation-routes.ts",
     "generate:rest-client": "node scripts/sdk/generate-rest-client.ts",
     "generate:models": "node scripts/models-rs/generate-models.ts",
+    "generate:queries-rs": "node scripts/infra/generate-queries-rs.ts",
     "build": "pnpm -r --if-present run build",
     "check": "pnpm run generate && pnpm run build"
   },

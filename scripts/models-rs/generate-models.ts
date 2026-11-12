@@ -207,7 +207,7 @@ function fieldIdentifier(name: string): string {
 }
 
 /** A variant identifier, suffixed when it collides with a keyword. */
-function variantIdentifier(name: string): string {
+export function variantIdentifier(name: string): string {
     const variant = pascalName(name);
     return RESERVED.has(variant) ? `${variant}_` : variant;
 }
@@ -231,9 +231,20 @@ function fileModule(filePath: string): string {
 }
 
 /** The absolute Rust path of an item, e.g. `crate::domain::invoicing_service::primitives::money::Money`. */
+/** The Rust module path of a spec file relative to `spec/src`, e.g. `invoicing-service/Invoice.ts` -> `domain::invoicing_service::invoice`. */
+export function rustModulePath(relativePath: string): string {
+    const parts = relativePath.split(/[\\/]/u);
+    const file = parts.pop() ?? "";
+    return ["domain", ...parts.map(directoryModule), snakeName(basename(file, ".ts"))].join("::");
+}
+
+/** The Rust path of an item generated from a spec import specifier, e.g. `spec/widget/Widget.ts` -> `models::domain::widget::widget::Widget`. */
+export function rustModelItemPath(importSpecifier: string, item: string, crateRoot = "models"): string {
+    return [crateRoot, rustModulePath(importSpecifier.replace(/^spec\//u, "")), item].join("::");
+}
+
 function itemPath(filePath: string, item: string): string {
-    const components = [...specDirectories(filePath).map(directoryModule), fileModule(filePath), item];
-    return ["crate", "domain", ...components].join("::");
+    return ["crate", rustModulePath(relativePath(SPEC_SRC_ROOT, filePath)), item].join("::");
 }
 
 /** The output path of a spec source file, keeping its spec directories and using a Rust file name. */

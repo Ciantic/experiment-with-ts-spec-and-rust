@@ -151,5 +151,6 @@ newtypes, which is the shape the entities use.
 
 A selection *request* — what a caller sends to say which fields it wants — is a
 different shape from `WidgetSelect`: it carries `true` per scalar and nested
-arguments per branch, not a value. It belongs with the query arguments
-(`filter`, `order`, `where`, `limit`, `offset`), which are not generated.
+arguments per branch, not a value. A read is generated today (see
+`docs/rust-queries.md`), but its selection is a plain list of columns; the typed
+request and the decoder that fills a `WidgetSelect` belong to the executor layer.
