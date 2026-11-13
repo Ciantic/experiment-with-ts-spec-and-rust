@@ -34,7 +34,7 @@ export type QuerySellerErrors =
  */
 export function querySeller<S extends Selection<Seller>>(
     opts: {
-        filters?: Filters<Seller, SellerFilter>;
+        filters?: Filters<SellerFilter>;
         limit?: number;
         offset?: number;
         select: S;

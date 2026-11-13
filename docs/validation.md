@@ -380,14 +380,18 @@ schema is named after the read: `Widget` yields `queryWidgetSchema` in
 `packages/sdk/src/queries/queryWidget.ts`.
 
 ```typescript
+const queryWidgetFilter = z.union([
+    z.strictObject({ "id__eq": primitives.brandedIdSchema<"WidgetId">() }),
+    z.strictObject({ "startsAt__gte": z.date() }),
+    z.strictObject({ "startsAt__lte": z.date() }),
+]);
+
 export const queryWidgetSchema = z.strictObject({
     order: z.array(
         z.tuple([z.enum(["createdAt", "updatedAt"]), z.enum(["asc", "desc"])]),
     ).exactOptional(),
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"WidgetId">().exactOptional() }) }),
-                 z.strictObject({ startsAt: z.union([z.strictObject({ gte: z.date().exactOptional() }),
-                                                     z.strictObject({ lte: z.date().exactOptional() })]) })]),
+        z.union([queryWidgetFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryWidgetFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
@@ -395,13 +399,16 @@ export const queryWidgetSchema = z.strictObject({
 });
 ```
 
-An entry is a `z.strictObject` naming **one** column, and that column's value is a
-union of one-operator objects, so an entry that names two columns or two
-comparisons is a 400 rather than a query that silently drops one. The operators
-come from the column's `@queryFilter ops=`, and the operator decides the value:
-the field's own schema for one value, `z.array(…)` for `in` and `any`,
-`z.tuple([…, …])` for `between`, and `z.literal(true)` for a null test. A
-comparison the spec does not allow is therefore a 400 too.
+An entry is a `z.strictObject` with **one** flat `column__operator` key, so an
+entry that names two comparisons is a 400 rather than a query that silently drops
+one. The same union, `queryWidgetFilter`, is what a group's branches validate, so
+an `or` group names its alternatives with the same narrowing a root entry gets,
+and a group inside a group is refused because a branch may only be that
+comparison union. The operators come from the column's `@queryFilter ops=`, and
+the operator decides the value: the field's own schema for one value,
+`z.array(…)` for `in` and `any`, `z.tuple([…, …])` for `between`, and
+`z.literal(true)` for a null test. A comparison the spec does not allow is
+therefore a 400 too.
 
 `filters` is optional, and so is every entry: a read that names none lists every
 row. A `@queryFilter default=<value>` needs no schema of its own, because the

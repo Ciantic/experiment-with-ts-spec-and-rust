@@ -9,6 +9,6 @@ import { queryModel } from "./model.ts";
 const resolver = createResolver(queryModel);
 
 /** Query `UserSession` rows over the filters it carries, combined with and. */
-export function queryUserSession<S extends Selection<UserSession>>(db: SqlExecutor, opts: { filters?: Filters<UserSession, UserSessionFilter>; limit?: number; offset?: number; select: S }): Promise<Selected<UserSession, S>[]> {
+export function queryUserSession<S extends Selection<UserSession>>(db: SqlExecutor, opts: { filters?: Filters<UserSessionFilter>; limit?: number; offset?: number; select: S }): Promise<Selected<UserSession, S>[]> {
     return resolver.resolveMany<UserSession, S>(db, "user_session", { select: opts.select, filters: opts.filters, limit: opts.limit, offset: opts.offset });
 }

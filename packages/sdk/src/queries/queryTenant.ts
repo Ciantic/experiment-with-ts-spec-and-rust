@@ -13,9 +13,12 @@ export const queryTenantSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `Tenant` filter may name, as a flat `column__operator` key. */
+const queryTenantFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"TenantId">() })]);
+
 export const queryTenantSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+        z.union([queryTenantFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryTenantFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

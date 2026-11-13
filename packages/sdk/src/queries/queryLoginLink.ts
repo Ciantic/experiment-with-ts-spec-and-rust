@@ -16,9 +16,12 @@ export const queryLoginLinkSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `LoginLink` filter may name, as a flat `column__operator` key. */
+const queryLoginLinkFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"LoginLinkId">() }), z.strictObject({ "email__eq": primitives.emailAddressSchema }), z.strictObject({ "tokenHash__eq": primitives.loginLinkTokenHashSchema }), z.strictObject({ "expiresAt__gt": z.date() }), z.strictObject({ "expiresAt__lte": z.date() }), z.strictObject({ "consumedAt__isNull": z.literal(true) }), z.strictObject({ "consumedAt__isNotNull": z.literal(true) })]);
+
 export const queryLoginLinkSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"LoginLinkId">().exactOptional() }) }), z.strictObject({ email: z.strictObject({ eq: primitives.emailAddressSchema.exactOptional() }) }), z.strictObject({ tokenHash: z.strictObject({ eq: primitives.loginLinkTokenHashSchema.exactOptional() }) }), z.strictObject({ expiresAt: z.union([z.strictObject({ gt: z.date().exactOptional() }), z.strictObject({ lte: z.date().exactOptional() })]) }), z.strictObject({ consumedAt: z.union([z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) })]),
+        z.union([queryLoginLinkFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryLoginLinkFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

@@ -34,7 +34,7 @@ export type QueryTranslationErrors =
  */
 export function queryTranslation<S extends Selection<Translation>>(
     opts: {
-        filters?: Filters<Translation, TranslationFilter>;
+        filters?: Filters<TranslationFilter>;
         limit?: number;
         offset?: number;
         select: S;

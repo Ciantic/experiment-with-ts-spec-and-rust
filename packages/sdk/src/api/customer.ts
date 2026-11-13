@@ -34,7 +34,7 @@ export type QueryCustomerErrors =
  */
 export function queryCustomer<S extends Selection<Customer>>(
     opts: {
-        filters?: Filters<Customer, CustomerFilter>;
+        filters?: Filters<CustomerFilter>;
         limit?: number;
         offset?: number;
         select: S;

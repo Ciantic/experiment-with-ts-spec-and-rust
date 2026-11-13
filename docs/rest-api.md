@@ -220,7 +220,7 @@ is the one function that talks to the network:
 ```typescript
 export function queryWidget<S extends Selection<Widget>>(
     opts: {
-        filters?: Filters<Widget, WidgetFilter>;
+        filters?: Filters<WidgetFilter>;
         order?: Order<"createdAt" | "updatedAt">[];
         limit?: number;
         offset?: number;
@@ -233,7 +233,7 @@ export function queryWidget<S extends Selection<Widget>>(
 
 ```typescript
 const [widget] = await exec(http, queryWidget({
-    filter: { tenantId: [tenantId], id: [id] },
+    filters: [{ tenantId__eq: tenantId }, { id__eq: id }],
     select: { label: true, total: true, rows: { select: { note: true } } },
 }));
 // widget.rows![0].note    ✓

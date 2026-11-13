@@ -34,7 +34,7 @@ export type QueryTenantErrors =
  */
 export function queryTenant<S extends Selection<Tenant>>(
     opts: {
-        filters?: Filters<Tenant, TenantFilter>;
+        filters?: Filters<TenantFilter>;
         limit?: number;
         offset?: number;
         select: S;

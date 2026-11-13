@@ -10,9 +10,12 @@ export const queryTranslationSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `Translation` filter may name, as a flat `column__operator` key. */
+const queryTranslationFilter = z.union([z.strictObject({ "lang__eq": z.string() }), z.strictObject({ "key__eq": z.string() })]);
+
 export const queryTranslationSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ lang: z.strictObject({ eq: z.string().exactOptional() }) }), z.strictObject({ key: z.strictObject({ eq: z.string().exactOptional() }) })]),
+        z.union([queryTranslationFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryTranslationFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

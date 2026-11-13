@@ -15,9 +15,12 @@ export const queryTenantSharedPermissionSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `TenantSharedPermission` filter may name, as a flat `column__operator` key. */
+const queryTenantSharedPermissionFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"TenantSharedPermissionId">() }), z.strictObject({ "ownerTenantId__eq": primitives.brandedIdSchema<"TenantId">() }), z.strictObject({ "sharedTenantId__eq": primitives.brandedIdSchema<"TenantId">() })]);
+
 export const queryTenantSharedPermissionSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"TenantSharedPermissionId">().exactOptional() }) }), z.strictObject({ ownerTenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) }), z.strictObject({ sharedTenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+        z.union([queryTenantSharedPermissionFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryTenantSharedPermissionFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

@@ -827,6 +827,16 @@ function declaredTypeIn(
     return importSpecifier === undefined ? undefined : { name: type.name, importSpecifier };
 }
 
+/** The TS type one property is written as and the module that declares it; `undefined` for a shape with no single name. */
+export function declaredTypeOf(spec: SpecModel, type: SpecType): DeclaredType | undefined {
+    const resolved = declaredTypeIn(spec.interfaces, spec.aliases, type);
+    // A type the spec does not declare, such as `Date`, still has a name to write and nothing to import.
+    if (resolved === undefined && type.kind === "reference" && type.arguments.length === 0) {
+        return { name: type.name };
+    }
+    return resolved;
+}
+
 /** A `@tenantOwned` that names no column takes the interface's one link to the root, once every interface is known. See docs/tenancy.md. */
 function resolveTenantOwned(interfaces: Map<string, SpecInterface>): void {
     const root = [...interfaces.values()].find((entity) => entity.tags.tenant);

@@ -34,7 +34,7 @@ export type QueryInvoiceSentErrors =
  */
 export function queryInvoiceSent<S extends Selection<InvoiceSent>>(
     opts: {
-        filters?: Filters<InvoiceSent, InvoiceSentFilter>;
+        filters?: Filters<InvoiceSentFilter>;
         limit?: number;
         offset?: number;
         select: S;

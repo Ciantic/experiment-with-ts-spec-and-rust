@@ -20,9 +20,12 @@ export const queryCustomerSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `Customer` filter may name, as a flat `column__operator` key. */
+const queryCustomerFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"CustomerId">() }), z.strictObject({ "tenantId__eq": primitives.brandedIdSchema<"TenantId">() })]);
+
 export const queryCustomerSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"CustomerId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+        z.union([queryCustomerFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryCustomerFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

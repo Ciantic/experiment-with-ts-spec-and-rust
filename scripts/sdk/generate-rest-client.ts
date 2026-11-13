@@ -71,7 +71,7 @@ function filterKeys(filters: string[]): string {
 function queryOpts(name: string, order: string[], filtered: boolean): string[] {
     const parts: string[] = [];
     if (filtered) {
-        parts.push(`filters?: Filters<${name}, ${filterTypeName(name)}>`);
+        parts.push(`filters?: Filters<${filterTypeName(name)}>`);
     }
     if (order.length > 0) {
         parts.push(`order?: Order<${filterKeys(order)}>[]`);

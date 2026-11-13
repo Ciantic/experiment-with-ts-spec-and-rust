@@ -198,7 +198,7 @@ function queryOptsType(entity: string, order: string[], filtered: boolean): stri
     const parts: string[] = [];
     if (filtered) {
         // The shared map names every filterable column, so the list itself is what may be left out.
-        parts.push(`filters?: Filters<${entity}, ${filterTypeName(entity)}>`);
+        parts.push(`filters?: Filters<${filterTypeName(entity)}>`);
     }
     if (order.length > 0) {
         parts.push(`order?: Order<${filterKeys(order)}>[]`);

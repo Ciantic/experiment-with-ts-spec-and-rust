@@ -53,8 +53,26 @@ export interface QueryModel {
 /** One ordering clause, as a read passes it: `[field, direction]`. See docs/queries.md. */
 export type OrderClause = [field: string, direction: Direction];
 
-/** One filter, as a read passes it: one column with one comparison, e.g. `{ issueDate: { gte: … } }`. See docs/queries.md. */
-export type FilterClause = Record<string, Record<string, unknown>>;
+/** One comparison, as a read passes it: a flat `column__operator` key, e.g. `{ "issueDate__gte": … }`. See docs/queries.md. */
+export type ComparisonClause = Record<string, unknown>;
+
+/** The characters that separate a column from its operator in a flat filter key. */
+const FILTER_SEPARATOR = "__";
+
+/** A group of alternatives, as a read passes it: any branch may match. See docs/queries.md. */
+export interface GroupClause {
+    kind: "or";
+    /** The branches; each is one comparison. */
+    filters: readonly ComparisonClause[];
+}
+
+/** One entry of a read's filter list: a comparison or a group. See docs/queries.md. */
+export type FilterClause = ComparisonClause | GroupClause;
+
+/** True when an entry is a group rather than a comparison on a column. */
+function isGroupClause(filter: FilterClause): filter is GroupClause {
+    return "kind" in filter && filter.kind === "or";
+}
 
 /** The SQL operator each single-value comparison maps to. */
 const COMPARISON_SQL: Record<string, string> = {
@@ -374,30 +392,63 @@ const RANGE_COMPARISON_SQL: Record<string, string> = {
  * @throws {QueryError} when the filter names no column, an operator the column does not allow, or a value of the wrong shape
  */
 function filterClauses(table: string, meta: QueryTable, filter: FilterClause, params: unknown[]): string[] {
+    if (isGroupClause(filter)) {
+        const branches: string[] = [];
+        for (const branch of filter.filters) {
+            const conditions = comparisonClauses(table, meta, branch, params);
+            if (conditions.length === 0) {
+                continue;
+            }
+            const [only] = conditions;
+            branches.push(only !== undefined && conditions.length === 1 ? only : `(${conditions.join(" and ")})`);
+        }
+        // An empty group constrains nothing, exactly as an empty filter list does.
+        return branches.length === 0 ? [] : [`(${branches.join(" or ")})`];
+    }
+    return comparisonClauses(table, meta, filter, params);
+}
+
+/**
+ * One comparison's conditions: each operator on a named column is its own `and`ed clause.
+ * @throws {QueryError} when the entry names no column, an operator the column does not allow, or a value of the wrong shape
+ */
+function comparisonClauses(
+    table: string,
+    meta: QueryTable,
+    filter: ComparisonClause,
+    params: unknown[],
+): string[] {
     const clauses: string[] = [];
-    for (const [field, comparison] of Object.entries(filter)) {
-        if (comparison === undefined || comparison === null) {
+    for (const [key, value] of Object.entries(filter)) {
+        if (value === undefined) {
             continue;
         }
+        const { field, operator } = splitComparisonKey(table, key);
         const column = meta.fields[field];
         if (column === undefined) {
             throw new QueryError(`unknown filter field \`${field}\` on \`${table}\``);
         }
-        if (typeof comparison !== "object" || Array.isArray(comparison)) {
-            throw new QueryError(`filter \`${field}\` on \`${table}\` must be an object of comparisons`);
-        }
         const allowed = meta.where?.[field] ?? [];
-        for (const [operator, value] of Object.entries(comparison)) {
-            if (value === undefined) {
-                continue;
-            }
-            if (!allowed.includes(operator)) {
-                throw new QueryError(`filter operator \`${operator}\` is not allowed on \`${field}\` of \`${table}\``);
-            }
-            clauses.push(comparisonClause(table, field, column, operator, value, params));
+        if (!allowed.includes(operator)) {
+            throw new QueryError(`filter operator \`${operator}\` is not allowed on \`${field}\` of \`${table}\``);
         }
+        clauses.push(comparisonClause(table, field, column, operator, value, params));
     }
     return clauses;
+}
+
+/**
+ * Split one filter key into its column and its operator, at the last separator so a column may hold one.
+ * @throws {QueryError} when the key names no operator at all
+ */
+function splitComparisonKey(table: string, key: string): { field: string; operator: string } {
+    const separator = key.lastIndexOf(FILTER_SEPARATOR);
+    if (separator <= 0 || separator === key.length - FILTER_SEPARATOR.length) {
+        throw new QueryError(
+            `filter \`${key}\` on \`${table}\` must be written \`column${FILTER_SEPARATOR}operator\``,
+        );
+    }
+    return { field: key.slice(0, separator), operator: key.slice(separator + FILTER_SEPARATOR.length) };
 }
 
 /**
@@ -517,11 +568,15 @@ function buildClauses(table: string, meta: QueryTable, read: FetchRead): Clauses
         filters.push(inSet(read.match.column, read.match.values, params));
     }
 
+    // Only a comparison at the root names a column; one inside a group leaves the column's default in place.
     const named = new Set<string>();
     for (const filter of read.filters) {
-        for (const field of Object.keys(filter)) {
-            if (filter[field] !== undefined && filter[field] !== null) {
-                named.add(field);
+        if (isGroupClause(filter)) {
+            continue;
+        }
+        for (const [key, value] of Object.entries(filter)) {
+            if (value !== undefined) {
+                named.add(splitComparisonKey(table, key).field);
             }
         }
     }

@@ -50,7 +50,7 @@ There is no query alias to write. The generator walks the tables and emits
 export function queryWidget<S extends Selection<Widget>>(
     db: SqlExecutor,
     opts: {
-        filters?: Filters<Widget, WidgetFilter>;
+        filters?: Filters<WidgetFilter>;
         order?: Order<"createdAt" | "updatedAt">[];
         limit?: number;
         offset?: number;
@@ -94,12 +94,12 @@ reads. `id` is a filter **without the tag**, because each entity has one, so
 
 ```ts
 const rows = await queryWidgetRow(db, {
-    filters: [{ tenantId: { eq: tenantId } }, { id: { any: [firstId, secondId] } }],
+    filters: [{ tenantId__eq: tenantId }, { id__any: [firstId, secondId] }],
     select: { description: true, subtotal: true },
 });
 
 const [row] = await queryWidgetRow(db, {
-    filters: [{ tenantId: { eq: tenantId } }, { id: { eq: rowId } }],
+    filters: [{ tenantId__eq: tenantId }, { id__eq: rowId }],
     select: { description: true, subtotal: true },
 });
 ```
@@ -127,51 +127,81 @@ A field without `@queryFilter` is not filterable. Branch fields
 (`@relation`/`@children`/`@inlined`) may not carry it; a relation is filtered
 through its `@foreignKey` field, which is a scalar like any other.
 
-### Filters are one comparison, combined with `and`
+### A filter entry is one flat comparison
 
-A read carries `filters`: a list of entries in which each entry names one column
-with one comparison. The entries are combined with **`and`**, so one column may
+A read carries `filters`: a list of entries in which each entry holds **one**
+`column__operator` key. The entries are combined with **`and`**, so one column may
 appear more than once — which is how a range, or a match on either of two sets,
 is written:
 
 ```ts
 const widgets = await queryWidget(db, {
     filters: [
-        { tenantId: { eq: tenantId } },
-        { startsAt: { gte: from } },
-        { startsAt: { lte: to } },
+        { tenantId__eq: tenantId },
+        { startsAt__gte: from },
+        { startsAt__lte: to },
     ],
     select: { code: true },
 });
 // "tenantId" = $1 AND "startsAt" >= $2 AND "startsAt" <= $3
 ```
 
-The generated type restricts each entry to the columns its `@queryFilter` marks
-and, per column, to the operators its `ops=` names. Each entity's map is its own
-generated type, `WidgetFilter`, so a read, its route guard, and its client all
-name one definition rather than repeating it:
+The generated type is the whole union, so each entry is one key with that
+column's value type, and an operator its `ops=` does not name is not a member at
+all. A read, its route guard, and its client all name the same type:
 
 ```ts
-export type Filter<E, O extends FilterOps<E>> = {
-    [K in keyof O & keyof E]?: {
-        [P in Extract<NonNullable<O[K]>, PropertyKey>]?: OperatorValue<P, NonNullable<E[K]>>;
-    };
-};
+export type Filters<F> = readonly (F | { kind: "or"; filters: readonly F[] })[];
 
-export type Filters<E, O extends FilterOps<E>> = readonly Filter<E, O>[];
-
-/** The comparisons a filter over `Widget` may name, one entry per `@queryFilter` column. */
-export type WidgetFilter = {
-    id: "eq";
-    tenantId: "eq";
-    accountId: "eq";
-    startsAt: "gte" | "lte" | "between";
-};
+/** One comparison a filter over `Widget` may name, as a flat `column__operator` entry. */
+export type WidgetFilter =
+    | { id__eq: WidgetId }
+    | { tenantId__eq: TenantId }
+    | { accountId__eq: AccountId }
+    | { accountId__any: readonly AccountId[] }
+    | { startsAt__gte: Date }
+    | { startsAt__lte: Date }
+    | { startsAt__between: readonly [Date, Date] }
+    | { deletedAt__isNull: true };
 ```
 
 An entry that names a column the entity does not mark, or an operator that column
-does not offer, is a **type error** and, over HTTP, a 400. Left out, `filters` is
-an empty list, so `queryTenant(db, { select })` lists every row.
+does not offer, is a **type error** and, over HTTP, a 400. An entry with two keys
+is one too, because the value is a union of single-key objects. Left out,
+`filters` is an empty list, so `queryTenant(db, { select })` lists every row.
+
+### An `or` group
+
+Every entry is `and`ed, and an entry written as a group says that any of its
+branches may match:
+
+```ts
+const widgets = await queryWidget(db, {
+    filters: [
+        { tenantId__eq: tenantId },
+        { deletedAt__isNull: true },
+        {
+            kind: "or",
+            filters: [{ accountId__eq: first }, { accountId__eq: second }],
+        },
+    ],
+    select: { code: true },
+});
+// "tenantId" = $1 AND "deletedAt" IS NULL AND ("accountId" = $2 OR "accountId" = $3)
+```
+
+A branch is one comparison, exactly like a root entry:
+
+```ts
+filters: [{ kind: "or", filters: [{ startsAt__gte: from }, { startsAt__isNull: true }] }]
+// ("startsAt" >= $1 OR "startsAt" IS NULL)
+```
+
+A group may not hold another group, because an `or` inside an `or` says nothing a
+single group does not. There is no `and` group either: the list is already one,
+and a branch holds one comparison, so `(A and B) or C` is written as an `or`
+group only when it is genuinely `A or B or C` — a nested `and` is not expressible.
+An empty group constrains nothing.
 
 A nullable column's null test is a variant like any other, which is how a read
 names the rows a default would hide:
@@ -182,12 +212,12 @@ const live = await queryWidget(db, { select: { code: true } });
 
 // Deleted widgets: the null test replaces the default.
 const deleted = await queryWidget(db, {
-    filters: [{ deletedAt: { isNotNull: true } }],
+    filters: [{ deletedAt__isNotNull: true }],
     select: { code: true, deletedAt: true },
 });
 ```
 
-`{ isNull: true }` and `{ isNotNull: true }` take no value. They are offered only
+`__isNull` and `__isNotNull` take no value. They are offered only
 for an optional field, whose column can hold null; a null test on a not-null
 column would match every row or none, so the linter rejects an `ops=` that names
 either there.
@@ -245,7 +275,7 @@ A bare marker on a **scalar** field whitelists it as an ordering key. The
 
 ```ts
 const widgets = await queryWidget(db, {
-    filters: [{ tenantId: { eq: tenantId } }, { accountId: { eq: accountId } }],
+    filters: [{ tenantId__eq: tenantId }, { accountId__eq: accountId }],
     order: [["createdAt", "desc"]],
     select: { code: true },
 });
@@ -311,13 +341,13 @@ startsAt?: Date;
 
 ```ts
 const widgets = await queryWidget(db, {
-    filters: [{ startsAt: { gte: from } }, { startsAt: { lte: to } }],
+    filters: [{ startsAt__gte: from }, { startsAt__lte: to }],
     select: { code: true },
 });
 
 // The same range as one entry.
 const ranged = await queryWidget(db, {
-    filters: [{ startsAt: { between: [from, to] } }],
+    filters: [{ startsAt__between: [from, to] }],
     select: { code: true },
 });
 ```
@@ -345,7 +375,7 @@ leading rows.
 
 ```ts
 const page = await queryWidget(db, {
-    filters: [{ tenantId: { eq: tenantId } }, { accountId: { eq: accountId } }],
+    filters: [{ tenantId__eq: tenantId }, { accountId__eq: accountId }],
     order: [["createdAt", "desc"]],
     limit: 25,
     offset: 50,
@@ -385,7 +415,7 @@ export type ScalarKeys<E> = {
 /** The arguments of a read over `E`, as a branch carries them: the same shape a root read takes. */
 export type QueryArgs<E> = {
     select: Selection<E>;
-    filters?: Filters<E, Partial<Record<keyof E, CompareOp>>>;
+    filters?: Filters<Filter<E, Partial<Record<Extract<ScalarKeys<E>, string>, CompareOp>>>>;
     order?: readonly (readonly [field: ScalarKeys<E>, direction: Direction])[];
     limit?: number;
     offset?: number;
@@ -417,7 +447,7 @@ result, not `undefined`.
 
 ```ts
 const [widget] = await queryWidget(db, {
-    filters: [{ tenantId: { eq: tenantId } }],
+    filters: [{ tenantId__eq: tenantId }],
     select: {
         code: true,
         // The same arguments `queryWidgetRow` takes, applied to this widget's rows.
@@ -464,7 +494,7 @@ A call site narrows exactly:
 
 ```ts
 const [widget] = await queryWidget(db, {
-    filters: [{ tenantId: { eq: tenantId } }, { id: { eq: id } }],
+    filters: [{ tenantId__eq: tenantId }, { id__eq: id }],
     select: {
         id: true,
         code: true,
@@ -610,7 +640,10 @@ because the ranked window orders each parent's rows before they are grouped.
   projection; the `filters` still read whatever they name, and so does `order`.
 - **One entry is one comparison.** `filters` is a list of entries combined with
   `and`, each naming one column with one operator, so a column is filtered twice
-  by two entries. An entry naming two columns, or two operators, throws.
+  by two entries. An entry naming two columns throws.
+- **A group is an entry, and its branches are entries.** `{ kind: "or", filters:
+  […] }` matches when any branch does; the branches are comparisons, so a group
+  cannot hold another group.
 - **A range is two entries, or one `between`.** `ops=` decides which is offered:
   `{ gte }` and `{ lte }` need no `between`, and `between` needs no second entry.
   Both render the same rows.

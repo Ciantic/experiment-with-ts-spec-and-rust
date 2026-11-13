@@ -174,21 +174,29 @@ A route that addresses a stored row calls the entity's generated
 `get<Entity>Tenants` directly; the module never builds SQL itself.
 
 The argument type is the route's schema type: `InvoiceInsert`, `InvoicePatch`,
-`InvoiceUpsert`, or `InvoicePrimaryKey` for a write, and `Filters<Invoice,
-InvoiceFilter>` for a `query` — the same types the generated read and client take.
-`InvoiceFilter` is the entity's generated operator map (`sdk/filters.ts`), so the
-guard, the read, and the client share one definition rather than repeating the
-operator union. A tenant column's own type comes from `Filter`, and the parser
-resolves the root's key once into `SpecModel.tenantIdType` — `TenantId` from
-`spec/user-service/Tenant.ts`, say — so no module indexes the entity by hand.
+`InvoiceUpsert`, or `InvoicePrimaryKey` for a write, and `Filters<InvoiceFilter>`
+for a `query` — the same types the generated read and client take.
+`InvoiceFilter` is the entity's generated union of flat `column__operator`
+entries (`sdk/filters.ts`), so the guard, the read, and the client share one
+definition rather than repeating the operators. A tenant column's own type comes
+from the entry the guard reads, and the parser resolves the root's key once into
+`SpecModel.tenantIdType` — `TenantId` from `spec/user-service/Tenant.ts`, say — so
+no module indexes the entity by hand.
 
 Every module is plain TypeScript over the parsed argument, with no shared guard
-helper: a read is a list of one-column comparisons, so the module walks the
-entries and collects the tenants the equality and membership operators name; a
+helper: a read is a list of one-key comparisons, so the module walks the entries
+and collects the tenants the equality and membership keys name; a
 row names its tenant as one value, so the module reads `row.tenantId`; a watch
 names one filter value and, on the rows scope, falls back to the lookup. The set
 is deduplicated with `new Set`, and an entry that does not name the column, or
 names it with an operator that cannot pin a tenant, simply contributes none.
+
+A read's tenant is read from the **root** of the filter list only. An `or` group
+is skipped, so a tenant named inside one does not count: the read then names no
+tenant at the root, and the guard refuses it without the global permission. That
+is the safe direction — a group is never read as a narrower scope than it is —
+and it keeps the guard a scan of one level rather than a walk of a tree. See
+`docs/queries.md`.
 
 ### The two-level check
 

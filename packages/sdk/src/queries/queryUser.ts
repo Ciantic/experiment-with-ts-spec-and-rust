@@ -15,9 +15,12 @@ export const queryUserSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `User` filter may name, as a flat `column__operator` key. */
+const queryUserFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"UserId">() }), z.strictObject({ "email__eq": primitives.emailAddressSchema }), z.strictObject({ "emailVerifiedAt__isNull": z.literal(true) }), z.strictObject({ "emailVerifiedAt__isNotNull": z.literal(true) }), z.strictObject({ "deletedAt__eq": z.date() })]);
+
 export const queryUserSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"UserId">().exactOptional() }) }), z.strictObject({ email: z.strictObject({ eq: primitives.emailAddressSchema.exactOptional() }) }), z.strictObject({ emailVerifiedAt: z.union([z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) }), z.strictObject({ deletedAt: z.strictObject({ eq: z.date().exactOptional() }) })]),
+        z.union([queryUserFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryUserFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

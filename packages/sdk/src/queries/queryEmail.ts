@@ -22,12 +22,15 @@ export const queryEmailSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `Email` filter may name, as a flat `column__operator` key. */
+const queryEmailFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"EmailId">() }), z.strictObject({ "tenantId__eq": primitives.brandedIdSchema<"TenantId">() }), z.strictObject({ "status__eq": z.enum(["pending", "sending", "sent", "failed"]) })]);
+
 export const queryEmailSchema = z.strictObject({
     order: z.array(
         z.tuple([z.enum(["createdAt", "updatedAt"]), z.enum(["asc", "desc"])]),
     ).exactOptional(),
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"EmailId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) }), z.strictObject({ status: z.strictObject({ eq: z.enum(["pending", "sending", "sent", "failed"]).exactOptional() }) })]),
+        z.union([queryEmailFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryEmailFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

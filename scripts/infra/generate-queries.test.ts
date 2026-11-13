@@ -177,7 +177,7 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule("Invoice", invoice);
 
         expect(code).toContain(
-            'queryInvoice<S extends Selection<Invoice>>(db: SqlExecutor, opts: { filters?: Filters<Invoice, InvoiceFilter>; limit?: number; offset?: number; select: S })',
+            'queryInvoice<S extends Selection<Invoice>>(db: SqlExecutor, opts: { filters?: Filters<InvoiceFilter>; limit?: number; offset?: number; select: S })',
         );
     });
 
@@ -233,7 +233,7 @@ describe("renderQueryModule", () => {
 
         expect(code).not.toContain("Order<");
         expect(code).toContain(
-            'opts: { filters?: Filters<Invoice, InvoiceFilter>; limit?: number; offset?: number; select: S }',
+            'opts: { filters?: Filters<InvoiceFilter>; limit?: number; offset?: number; select: S }',
         );
     });
 
@@ -246,20 +246,20 @@ describe("renderQueryModule", () => {
     it("keeps the filters optional, since no filter is mandatory", () => {
         const code = renderQueryModule("Scoped", scoped);
 
-        expect(code).toContain('filters?: Filters<Scoped, ScopedFilter>');
+        expect(code).toContain('filters?: Filters<ScopedFilter>');
     });
 
     it("names no required key when every filter is optional", () => {
         const code = renderQueryModule("Invoice", invoice);
 
-        expect(code).toContain('filters?: Filters<Invoice, InvoiceFilter>');
+        expect(code).toContain('filters?: Filters<InvoiceFilter>');
     });
 
     it("takes comparisons for the whitelisted operators", () => {
         const code = renderQueryModule("Sized", sized);
 
         expect(code).toContain("import type { Filters, Selected, Selection } from");
-        expect(code).toContain('filters?: Filters<Sized, SizedFilter>');
+        expect(code).toContain('filters?: Filters<SizedFilter>');
         expect(code).toContain("filters: opts.filters");
     });
 
@@ -270,7 +270,7 @@ describe("renderQueryModule", () => {
         ]);
         const code = renderQueryModule("Nullable", nullable);
 
-        expect(code).toContain('filters?: Filters<Nullable, NullableFilter>');
+        expect(code).toContain('filters?: Filters<NullableFilter>');
     });
 
     it("omits the filters key from the opts type when the entity marks nothing filterable", () => {

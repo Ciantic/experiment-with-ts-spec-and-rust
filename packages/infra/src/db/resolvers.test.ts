@@ -154,21 +154,21 @@ describe("resolveMany", () => {
 
     it("omits a selected scalar whose column is null", async () => {
         const select = { id: true, notes: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1", "i2"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1", "i2"] }], select });
 
         expect(rows).toEqual([{ id: "i1", notes: "first" }, { id: "i2" }]);
     });
 
     it("omits a null inlined target", async () => {
         const select = { id: true, snapshot: { select: { name: true, email: true } } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i4"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i4"] }], select });
 
         expect(rows).toEqual([{ id: "i4", snapshot: {} }]);
     });
 
     it("omits a to-one relation whose foreign key is null", async () => {
         const select = { id: true, customer: { select: { name: true } } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i4"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i4"] }], select });
 
         expect(rows).toEqual([{ id: "i4" }]);
     });
@@ -208,40 +208,40 @@ describe("resolveMany", () => {
 
     it("treats `true` on a branch as all of its scalar fields", async () => {
         const select = { number: true, rows: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i2"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i2"] }], select });
 
         expect(rows[0]?.rows).toEqual([{ id: "r3", description: "Thing", amount: "200" }]);
     });
 
     it("matches a set argument against a scalar field", async () => {
         const select = { number: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i3"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i3"] }], select });
 
         expect(rows).toEqual([{ number: "INV-3" }]);
     });
 
     it("matches a set argument against a foreign-key field", async () => {
         const select = { id: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ customerId: { any: ["c1"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "customerId__any": ["c1"] }], select });
 
         expect(rows.map((row) => row.id)).toEqual(["i1", "i3"]);
     });
 
     it("combines two filters with and", async () => {
         const select = { id: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1", "i2"] } }, { customerId: { any: ["c1"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1", "i2"] }, { "customerId__any": ["c1"] }], select });
 
         expect(rows.map((row) => row.id)).toEqual(["i1"]);
     });
 
     it("returns nothing for an empty set", async () => {
         const select = { id: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { in: [] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__in": [] }], select });
 
         expect(rows).toEqual([]);
     });
 
-    it("rejects a filter that is not an object of comparisons", async () => {
+    it("rejects a filter key with no operator", async () => {
         const select = { id: true } as const;
 
         await expect(
@@ -249,7 +249,7 @@ describe("resolveMany", () => {
                 filters: [{ id: "i1" } as never],
                 select,
             }),
-        ).rejects.toThrow("filter `id` on `invoice` must be an object of comparisons");
+        ).rejects.toThrow("filter `id` on `invoice` must be written `column__operator`");
     });
 
     it("rejects a null test that passes a value", async () => {
@@ -257,7 +257,7 @@ describe("resolveMany", () => {
 
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", {
-                filters: [{ notes: { isNull: false } }],
+                filters: [{ notes__isNull: false }],
                 select,
             }),
         ).rejects.toThrow("filter `isNull` on `notes` of `invoice` takes `true`");
@@ -268,7 +268,7 @@ describe("resolveMany", () => {
 
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", {
-                filters: [{ id: { gte: "i1" } }],
+                filters: [{ "id__gte": "i1" }],
                 select,
             }),
         ).rejects.toThrow("filter operator `gte` is not allowed on `id` of `invoice`");
@@ -276,7 +276,7 @@ describe("resolveMany", () => {
 
     it("returns nothing for a filter that matches no rows", async () => {
         const select = { number: true } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["nope"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["nope"] }], select });
 
         expect(rows).toEqual([]);
     });
@@ -285,7 +285,7 @@ describe("resolveMany", () => {
         const select = { number: true } as const;
 
         await expect(
-            resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ nonsense: { any: [1] } }], select }),
+            resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "nonsense__any": [1] }], select }),
         ).rejects.toThrow("unknown filter field `nonsense` on `invoice`");
     });
 });
@@ -336,7 +336,7 @@ describe("resolveMany filter defaults", () => {
     });
 
     it("lets a named filter override the default", async () => {
-        expect(await ids(taskResolver({ status: { kind: "literal", value: "open" } }), [{ status: { eq: "done" } }])).toEqual(["t3"]);
+        expect(await ids(taskResolver({ status: { kind: "literal", value: "open" } }), [{ "status__eq": "done" }])).toEqual(["t3"]);
     });
 
     it("combines two defaults with and", async () => {
@@ -344,19 +344,19 @@ describe("resolveMany filter defaults", () => {
     });
 
     it("combines a default with a named filter", async () => {
-        expect(await ids(taskResolver({ deletedAt: { kind: "isNull" } }), [{ status: { eq: "done" } }])).toEqual(["t3"]);
+        expect(await ids(taskResolver({ deletedAt: { kind: "isNull" } }), [{ "status__eq": "done" }])).toEqual(["t3"]);
     });
 
     it("matches nulls with an `isNull` filter", async () => {
-        expect(await ids(taskResolver({}), [{ deletedAt: { isNull: true } }])).toEqual(["t1", "t3"]);
+        expect(await ids(taskResolver({}), [{ deletedAt__isNull: true }])).toEqual(["t1", "t3"]);
     });
 
     it("matches rows with a value with an `isNotNull` filter, overriding the default", async () => {
-        expect(await ids(taskResolver({ deletedAt: { kind: "isNull" } }), [{ deletedAt: { isNotNull: true } }])).toEqual(["t2"]);
+        expect(await ids(taskResolver({ deletedAt: { kind: "isNull" } }), [{ deletedAt__isNotNull: true }])).toEqual(["t2"]);
     });
 
     it("rejects an unknown null test", async () => {
-        await expect(ids(taskResolver({}), [{ deletedAt: { isMaybe: true } } as never])).rejects.toThrow(
+        await expect(ids(taskResolver({}), [{ deletedAt__isMaybe: true } as never])).rejects.toThrow(
             "filter operator `isMaybe` is not allowed on `deletedAt` of `task`",
         );
     });
@@ -379,8 +379,8 @@ describe("resolveMany filter defaults", () => {
                 await resolver.resolveMany<{ id: string }, typeof select>(db, "task", { select, filters })
             ).map((row) => row.id);
 
-        expect(await read([{ deletedAt: { isNull: true } }])).toEqual(["t1", "t3"]);
-        expect(await read([{ deletedAt: { isNotNull: true } }])).toEqual(["t2"]);
+        expect(await read([{ deletedAt__isNull: true }])).toEqual(["t1", "t3"]);
+        expect(await read([{ deletedAt__isNotNull: true }])).toEqual(["t2"]);
     });
 
     it("rejects a null test that passes a value", async () => {
@@ -400,7 +400,7 @@ describe("resolveMany filter defaults", () => {
         await expect(
             resolver.resolveMany<{ id: string }, typeof select>(db, "task", {
                 select,
-                filters: [{ deletedAt: { isNull: false } }],
+                filters: [{ deletedAt__isNull: false }],
             }),
         ).rejects.toThrow("filter `isNull` on `deletedAt` of `task` takes `true`");
     });
@@ -421,7 +421,7 @@ describe("resolveMany filter defaults", () => {
         });
         const rows = await resolver.resolveMany<{ id: string }, typeof select>(db, "task", {
             select,
-            filters: [{ deletedAt: { gte: new Date(0) } }],
+            filters: [{ "deletedAt__gte": new Date(0) }],
         });
 
         expect(rows.map((row) => row.id)).toEqual(["t2"]);
@@ -462,7 +462,7 @@ describe("resolveMany ordering", () => {
     });
 
     it("orders by several clauses, the first breaking ties", async () => {
-        const rows = await ordered.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ customerId: { any: ["c1", "c2"] } }], select,
+        const rows = await ordered.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "customerId__any": ["c1", "c2"] }], select,
             order: [["customerId", "asc"], ["number", "desc"]],
         });
 
@@ -491,7 +491,7 @@ describe("resolveMany sets", () => {
         const ids = Array.from({ length: 40000 }, (_, index) => `w${String(index + 1).padStart(5, "0")}`);
         const counted = counting(db);
 
-        const rows = await resolver.resolveMany<{ id: string }, typeof select>(counted, "widget", { filters: [{ id: { any: ids } }], select,
+        const rows = await resolver.resolveMany<{ id: string }, typeof select>(counted, "widget", { filters: [{ id__any: ids }], select,
             limit: 2000,
         });
 
@@ -592,25 +592,25 @@ describe("resolveMany comparisons", () => {
         });
 
     it("filters with a comparison", async () => {
-        const rows = await widget([{ seq: { gt: 1498 } }]);
+        const rows = await widget([{ "seq__gt": 1498 }]);
 
         expect(ids(rows)).toEqual(["w01499", "w01500"]);
     });
 
     it("treats two conditions on one column as a range", async () => {
-        const rows = await widget([{ seq: { gte: 4 } }, { seq: { lte: 6 } }]);
+        const rows = await widget([{ "seq__gte": 4 }, { "seq__lte": 6 }]);
 
         expect(ids(rows)).toEqual(["w00004", "w00005", "w00006"]);
     });
 
     it("filters with neq", async () => {
-        const rows = await widget([{ id: { any: ["w00001", "w00002", "w00003"] } }, { seq: { neq: 1 } }]);
+        const rows = await widget([{ "id__any": ["w00001", "w00002", "w00003"] }, { "seq__neq": 1 }]);
 
         expect(ids(rows)).toEqual(["w00002", "w00003"]);
     });
 
     it("combines a set and a comparison with and", async () => {
-        const rows = await widget([{ id: { any: ["w00001", "w00002", "w00003"] } }, { seq: { gte: 2 } }]);
+        const rows = await widget([{ "id__any": ["w00001", "w00002", "w00003"] }, { "seq__gte": 2 }]);
 
         expect(ids(rows)).toEqual(["w00002", "w00003"]);
     });
@@ -619,7 +619,7 @@ describe("resolveMany comparisons", () => {
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", {
                 select,
-                filters: [{ nonsense: { eq: 1 } } as never],
+                filters: [{ "nonsense__eq": 1 } as never],
             }),
         ).rejects.toThrow("unknown filter field `nonsense` on `invoice`");
     });
@@ -628,7 +628,7 @@ describe("resolveMany comparisons", () => {
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", {
                 select,
-                filters: [{ number: { gt: "INV-1" } } as never],
+                filters: [{ "number__gt": "INV-1" } as never],
             }),
         ).rejects.toThrow("filter operator `gt` is not allowed on `number` of `invoice`");
     });
@@ -637,9 +637,46 @@ describe("resolveMany comparisons", () => {
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", {
                 select,
-                filters: [{ number: { equals: "INV-1" } } as never],
+                filters: [{ "number__equals": "INV-1" } as never],
             }),
         ).rejects.toThrow("filter operator `equals` is not allowed on `number` of `invoice`");
+    });
+
+    it("ands the entries before a group with the group's own or", async () => {
+        const rows = await widget([
+            { "seq__lte": 2 },
+            { kind: "or", filters: [{ "id__eq": "w00001" }, { "id__eq": "w00003" }] },
+        ]);
+
+        expect(ids(rows)).toEqual(["w00001"]);
+    });
+
+    it("matches either branch of a group", async () => {
+        const rows = await widget([{ kind: "or", filters: [{ "seq__eq": 1 }, { "seq__eq": 1500 }] }]);
+
+        expect(ids(rows)).toEqual(["w00001", "w01500"]);
+    });
+
+    it("reads a group as a tenant scope, so a group alone lists the rows it matches", async () => {
+        const rows = await widget([{ kind: "or", filters: [{ "id__eq": "w00001" }, { "id__eq": "w00002" }] }]);
+
+        expect(ids(rows)).toEqual(["w00001", "w00002"]);
+    });
+
+    it("constrains nothing for an empty group", async () => {
+        const rows = await resolver.resolveMany<{ id: string }, typeof select>(db, "widget", {
+            select,
+            filters: [{ kind: "or", filters: [] }],
+            limit: 2,
+        });
+
+        expect(rows).toHaveLength(2);
+    });
+
+    it("rejects a group branch that names an unknown column", async () => {
+        await expect(
+            widget([{ kind: "or", filters: [{ "nonsense__eq": 1 }] }]),
+        ).rejects.toThrow("unknown filter field `nonsense` on `widget`");
     });
 
     it("leaves a branch unfiltered by a root comparison", async () => {
@@ -647,7 +684,7 @@ describe("resolveMany comparisons", () => {
         const rows = await resolver.resolveMany<Invoice, typeof selectWithRows>(db, "invoice", {
             select: selectWithRows,
             order: [["id", "asc"]],
-            filters: [{ number: { gte: "INV-2" } }],
+            filters: [{ "number__gte": "INV-2" }],
         });
 
         expect(rows.map((row) => row.id)).toEqual(["i2", "i3", "i4"]);
@@ -657,15 +694,15 @@ describe("resolveMany comparisons", () => {
 
 describe("resolveMany branch arguments", () => {
     it("filters a branch with its own filter set", async () => {
-        const select = { id: true, rows: { select: { amount: true }, filters: [{ description: { eq: "Widget" } }] } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1"] } }], select });
+        const select = { id: true, rows: { select: { amount: true }, filters: [{ description__eq: "Widget" }] } } as const;
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1"] }], select });
 
         expect(rows[0]?.rows).toEqual([{ amount: "50" }]);
     });
 
     it("filters a branch with its own comparison", async () => {
-        const select = { id: true, rows: { select: { id: true }, filters: [{ amount: { eq: "200" } }] } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1", "i2"] } }], select });
+        const select = { id: true, rows: { select: { id: true }, filters: [{ amount__eq: "200" }] } } as const;
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1", "i2"] }], select });
 
         expect(rows[0]?.rows).toEqual([]);
         expect(rows[1]?.rows).toEqual([{ id: "r3" }]);
@@ -676,14 +713,14 @@ describe("resolveMany branch arguments", () => {
             id: true,
             rows: { select: { id: true }, order: [["amount", "desc"], ["id", "asc"]] },
         } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1"] }], select });
 
         expect(rows[0]?.rows).toEqual([{ id: "r1" }, { id: "r2" }]);
     });
 
     it("pages each parent's rows independently", async () => {
         const select = { id: true, rows: { select: { id: true }, order: [["id", "asc"]], limit: 1 } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1", "i2"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1", "i2"] }], select });
 
         expect(rows[0]?.rows).toEqual([{ id: "r1" }]);
         expect(rows[1]?.rows).toEqual([{ id: "r3" }]);
@@ -691,22 +728,22 @@ describe("resolveMany branch arguments", () => {
 
     it("skips a branch offset within each parent", async () => {
         const select = { id: true, rows: { select: { id: true }, order: [["id", "asc"]], offset: 1 } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1", "i2"] } }], select });
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1", "i2"] }], select });
 
         expect(rows[0]?.rows).toEqual([{ id: "r2" }]);
         expect(rows[1]?.rows).toEqual([]);
     });
 
     it("filters a to-one relation branch", async () => {
-        const select = { id: true, customer: { select: { name: true }, filters: [{ name: { eq: "Beta" } }] } } as const;
-        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ id: { any: ["i1", "i2"] } }], select });
+        const select = { id: true, customer: { select: { name: true }, filters: [{ name__eq: "Beta" }] } } as const;
+        const rows = await resolver.resolveMany<Invoice, typeof select>(db, "invoice", { filters: [{ "id__any": ["i1", "i2"] }], select });
 
         expect(rows[0]).toEqual({ id: "i1" });
         expect(rows[1]?.customer).toEqual({ name: "Beta" });
     });
 
     it("rejects a branch without a select", async () => {
-        const select = { id: true, rows: { filters: [{ id: { eq: "r1" } }] } } as never;
+        const select = { id: true, rows: { filters: [{ id__eq: "r1" }] } } as never;
 
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", { select }),
@@ -714,7 +751,7 @@ describe("resolveMany branch arguments", () => {
     });
 
     it("rejects a branch filter that names no column", async () => {
-        const select = { id: true, rows: { select: { id: true }, filters: [{ nonsense: { eq: "x" } }] } } as never;
+        const select = { id: true, rows: { select: { id: true }, filters: [{ "nonsense__eq": "x" }] } } as never;
 
         await expect(
             resolver.resolveMany<Invoice, typeof select>(db, "invoice", { select }),

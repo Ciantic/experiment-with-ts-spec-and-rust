@@ -9,6 +9,6 @@ import { queryModel } from "./model.ts";
 const resolver = createResolver(queryModel);
 
 /** Query `InvoiceSentRow` rows over the filters it carries, combined with and. */
-export function queryInvoiceSentRow<S extends Selection<InvoiceSentRow>>(db: SqlExecutor, opts: { filters?: Filters<InvoiceSentRow, InvoiceSentRowFilter>; limit?: number; offset?: number; select: S }): Promise<Selected<InvoiceSentRow, S>[]> {
+export function queryInvoiceSentRow<S extends Selection<InvoiceSentRow>>(db: SqlExecutor, opts: { filters?: Filters<InvoiceSentRowFilter>; limit?: number; offset?: number; select: S }): Promise<Selected<InvoiceSentRow, S>[]> {
     return resolver.resolveMany<InvoiceSentRow, S>(db, "invoice_sent_row", { select: opts.select, filters: opts.filters, limit: opts.limit, offset: opts.offset });
 }

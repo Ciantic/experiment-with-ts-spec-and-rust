@@ -34,7 +34,7 @@ export type QueryEmailErrors =
  */
 export function queryEmail<S extends Selection<Email>>(
     opts: {
-        filters?: Filters<Email, EmailFilter>;
+        filters?: Filters<EmailFilter>;
         order?: Order<"createdAt" | "updatedAt">[];
         limit?: number;
         offset?: number;

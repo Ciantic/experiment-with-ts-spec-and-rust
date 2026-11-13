@@ -2,25 +2,25 @@
 import { ForbiddenError } from "sdk/errors.ts";
 import type { RouteGuard } from "../router.ts";
 import type { InvoiceFilter } from "sdk/filters.ts";
-import type { Filter } from "sdk/selection.ts";
+import type { Filters } from "sdk/selection.ts";
 import type { Invoice } from "spec/invoicing-service/Invoice.ts";
 
 /**
  * Guard `queryInvoice`: the session may read the tenants the filter names.
  * @throws {ForbiddenError} when a tenant the call names is not permitted, or it names none
  */
-export const canQueryInvoice: RouteGuard<{ filters?: readonly Filter<Invoice, InvoiceFilter>[] | undefined }> = async (ctx, argument) => {
+export const canQueryInvoice: RouteGuard<{ filters?: Filters<InvoiceFilter> | undefined }> = async (ctx, argument) => {
     if (await ctx.hasGlobalPermission("invoice", "query")) {
         return;
     }
     const tenants = new Set<NonNullable<Invoice["tenantId"]>>();
     for (const filter of argument.filters ?? []) {
-        const comparison = filter.tenantId;
-        if (comparison === undefined) {
+        // An `or` group may hold the tenant, but only an entry at the root counts; a group is a refusal.
+        if ("kind" in filter) {
             continue;
         }
-        if (comparison.eq !== undefined) {
-            tenants.add(comparison.eq);
+        if ("tenantId__eq" in filter) {
+            tenants.add(filter["tenantId__eq"]);
         }
     }
     if (tenants.size === 0) {

@@ -2,25 +2,25 @@
 import { ForbiddenError } from "sdk/errors.ts";
 import type { RouteGuard } from "../router.ts";
 import type { EmailFilter } from "sdk/filters.ts";
-import type { Filter } from "sdk/selection.ts";
+import type { Filters } from "sdk/selection.ts";
 import type { Email } from "spec/emailing-service/Email.ts";
 
 /**
  * Guard `queryEmail`: the session may read the tenants the filter names.
  * @throws {ForbiddenError} when a tenant the call names is not permitted, or it names none, or when a row has no tenant and the session lacks the global permission
  */
-export const canQueryEmail: RouteGuard<{ filters?: readonly Filter<Email, EmailFilter>[] | undefined }> = async (ctx, argument) => {
+export const canQueryEmail: RouteGuard<{ filters?: Filters<EmailFilter> | undefined }> = async (ctx, argument) => {
     if (await ctx.hasGlobalPermission("email", "query")) {
         return;
     }
     const tenants = new Set<NonNullable<Email["tenantId"]>>();
     for (const filter of argument.filters ?? []) {
-        const comparison = filter.tenantId;
-        if (comparison === undefined) {
+        // An `or` group may hold the tenant, but only an entry at the root counts; a group is a refusal.
+        if ("kind" in filter) {
             continue;
         }
-        if (comparison.eq !== undefined) {
-            tenants.add(comparison.eq);
+        if ("tenantId__eq" in filter) {
+            tenants.add(filter["tenantId__eq"]);
         }
     }
     if (tenants.size === 0) {

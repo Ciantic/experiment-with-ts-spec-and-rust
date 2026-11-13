@@ -19,9 +19,12 @@ export const queryInvoiceSentRowSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `InvoiceSentRow` filter may name, as a flat `column__operator` key. */
+const queryInvoiceSentRowFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"InvoiceSentRowId">() }), z.strictObject({ "tenantId__eq": primitives.brandedIdSchema<"TenantId">() })]);
+
 export const queryInvoiceSentRowSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"InvoiceSentRowId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+        z.union([queryInvoiceSentRowFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryInvoiceSentRowFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

@@ -63,32 +63,40 @@ export type ScalarKeys<E> = {
     [K in keyof E]-?: Scalar<E[K]> extends true ? K : never;
 }[keyof E];
 
-/** Each filterable field mapped to the operators its `@queryFilter ops=` names, as the generator writes them. See docs/queries.md. */
-export type FilterOps<E> = Partial<Record<keyof E, PropertyKey>>;
+/** A filterable column mapped to the operators its `@queryFilter ops=` names; `Filter` narrows the keys to the entity. See docs/queries.md. */
+export type FilterOps = Partial<Record<string, PropertyKey>>;
+
+/** One comparison, as the flat `column__operator` key a filter entry is written with. See docs/queries.md. */
+type FlatFilter<E, K extends string, O> = O extends string
+    ? {
+          [P in O]: {
+              [Q in `${K}__${P}`]: OperatorValue<P, NonNullable<E[K & keyof E]>>;
+          };
+      }[O]
+    : never;
 
 /** One comparison on one column of `E`, restricted to that column's `@queryFilter ops=`. See docs/queries.md. */
-export type Filter<E, O extends FilterOps<E>> = {
-    [K in keyof O & keyof E]?: {
-        [P in Extract<NonNullable<O[K]>, PropertyKey>]?: OperatorValue<P, NonNullable<E[K]>>;
-    };
+export type Filter<E, O extends FilterOps> = {
+    [K in keyof O & Extract<keyof E, string>]-?: FlatFilter<E, K, Extract<NonNullable<O[K]>, string>>;
+}[keyof O & Extract<keyof E, string>];
+
+/** The filters of which any may match, as one entry of a read's list: `{ kind: "or", filters: […] }`. See docs/queries.md. */
+export type FilterGroup<F> = {
+    kind: "or";
+    /** The alternatives; each is one comparison, and a group inside a group would say nothing more. */
+    filters: readonly F[];
 };
 
-/** The filters a read must name first, one entry per required column. See docs/queries.md. */
-type RequiredFilters<E, O extends FilterOps<E>, R extends readonly (keyof E)[]> = {
-    [I in keyof R]: { [K in R[I] & keyof O]-?: NonNullable<Filter<E, O>[K]> };
-};
+/** One entry of a read's filter list: a comparison, or a group of alternatives. See docs/queries.md. */
+export type FilterEntry<F> = F | FilterGroup<F>;
 
-/** The filters of a read, combined with `and`, so one column may carry more than one. `R` names the columns a read must filter. See docs/queries.md. */
-export type Filters<
-    E,
-    O extends FilterOps<E>,
-    R extends readonly (keyof E)[] = [],
-> = R extends readonly [] ? readonly Filter<E, O>[] : readonly [...RequiredFilters<E, O, R>, ...Filter<E, O>[]];
+/** The filters of a read, combined with `and`, so one column may be filtered twice and a group says any of its branches. See docs/queries.md. */
+export type Filters<F> = readonly FilterEntry<F>[];
 
 /** The arguments of a read over `E`, as a branch carries them: the same shape a root read takes. See docs/queries.md. */
 export type QueryArgs<E> = {
     select: Selection<E>;
-    filters?: Filters<E, Partial<Record<keyof E, CompareOp>>>;
+    filters?: Filters<Filter<E, Partial<Record<Extract<ScalarKeys<E>, string>, CompareOp>>>>;
     order?: readonly (readonly [field: ScalarKeys<E>, direction: Direction])[];
     limit?: number;
     offset?: number;

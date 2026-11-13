@@ -4,13 +4,26 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { SPEC_SRC_ROOT, parseInMemorySpec, type SpecModel } from "../spec/spec-model.ts";
-import { buildFilterModel, filterTypeName, renderFiltersModule, run } from "./generate-filters.ts";
+import {
+    buildFilterModel,
+    comparisonKey,
+    filterTypeName,
+    operatorValueType,
+    renderFiltersModule,
+    run,
+} from "./generate-filters.ts";
 
 /** The generator's two channels with nothing behind them, so an assertion reads the exit code. */
 const SILENT = { log: () => undefined, error: () => undefined };
 
 /** The glob that matches an in-memory fixture, placed so its import specifier looks like a real one. */
 const SPEC_GLOB = join(SPEC_SRC_ROOT, "fixtures/**/*.ts");
+
+/** A branded id the fixture declares, so the value type and its import are both observable. */
+const WIDGET_ID = `
+/** The identifier of a widget. */
+export type WidgetId = string & { readonly __brand: "WidgetId" };
+`.trim();
 
 /** An entity whose columns whitelist several operators, and whose key is a filter with no tag. */
 const WIDGET = `
@@ -21,7 +34,7 @@ const WIDGET = `
  */
 export interface Widget {
     /** @primaryKey */
-    id: string;
+    id: WidgetId;
 
     /** @queryFilter ops=eq,any */
     tenantId: string;
@@ -63,7 +76,7 @@ export interface Marker {
 
 /** Parse an in-memory fixture, so no test reads the real spec. */
 function specOf(entities: Record<string, string>): SpecModel {
-    const sources = Object.entries(entities).map(([name, sourceFileText]) => ({
+    const sources = Object.entries({ WidgetId: WIDGET_ID, ...entities }).map(([name, sourceFileText]) => ({
         filePath: join(SPEC_SRC_ROOT, "fixtures", `${name}.ts`),
         sourceFileText,
     }));
@@ -79,10 +92,15 @@ describe("buildFilterModel", () => {
                 entity: "Widget",
                 typeName: "WidgetFilter",
                 columns: [
-                    { name: "id", operators: ["eq"] },
-                    { name: "tenantId", operators: ["eq", "any"] },
-                    { name: "startsAt", operators: ["gte", "lte", "between"] },
-                    { name: "endsAt", operators: ["gte", "lte"] },
+                    {
+                        name: "id",
+                        operators: ["eq"],
+                        valueType: "WidgetId",
+                        importSpecifier: "spec/fixtures/WidgetId.ts",
+                    },
+                    { name: "tenantId", operators: ["eq", "any"], valueType: "string" },
+                    { name: "startsAt", operators: ["gte", "lte", "between"], valueType: "Date" },
+                    { name: "endsAt", operators: ["gte", "lte"], valueType: "Date" },
                 ],
             },
         ]);
@@ -115,26 +133,43 @@ describe("buildFilterModel", () => {
 });
 
 describe("renderFiltersModule", () => {
-    it("writes one operator map per entity", () => {
+    it("writes one comparison per column and operator, as a flat key", () => {
         const code = renderFiltersModule(buildFilterModel(specOf({ Widget: WIDGET })));
 
-        expect(code).toContain("export type WidgetFilter = {");
-        expect(code).toContain('    id: "eq";');
-        expect(code).toContain('    tenantId: "eq" | "any";');
-        expect(code).toContain('    startsAt: "gte" | "lte" | "between";');
-        expect(code).toContain("};");
+        expect(code).toContain("export type WidgetFilter =");
+        expect(code).toContain('    { "id__eq": WidgetId }');
+        expect(code).toContain('    | { "tenantId__any": readonly string[] }');
+        expect(code).toContain('    | { "startsAt__between": readonly [Date, Date] }');
+        // The union ends on the last comparison, with the semicolon that closes the type.
+        expect(code).toContain('    | { "endsAt__lte": Date };');
     });
 
-    it("quotes a key that is not a plain identifier", () => {
-        const code = renderFiltersModule([
-            { entity: "Widget", typeName: "WidgetFilter", columns: [{ name: "tenant-id", operators: ["eq"] }] },
-        ]);
+    it("imports the value type each comparison names", () => {
+        const code = renderFiltersModule(buildFilterModel(specOf({ Widget: WIDGET })));
 
-        expect(code).toContain('    "tenant-id": "eq";');
+        expect(code).toContain('import type { WidgetId } from "spec/fixtures/WidgetId.ts";');
+        // A keyword or a built-in has no module to import.
+        expect(code).not.toContain("import type { string }");
+        expect(code).not.toContain("import type { Date }");
     });
 
     it("names the type after the entity", () => {
         expect(filterTypeName("Widget")).toBe("WidgetFilter");
+    });
+});
+
+describe("comparisonKey", () => {
+    it("separates the column from its operator", () => {
+        expect(comparisonKey("tenantId", "eq")).toBe("tenantId__eq");
+    });
+});
+
+describe("operatorValueType", () => {
+    it("wraps the value the way the operator takes it", () => {
+        expect(operatorValueType("eq", "InvoiceId")).toBe("InvoiceId");
+        expect(operatorValueType("any", "InvoiceId")).toBe("readonly InvoiceId[]");
+        expect(operatorValueType("between", "Date")).toBe("readonly [Date, Date]");
+        expect(operatorValueType("isNull", "Date")).toBe("true");
     });
 });
 
@@ -155,7 +190,7 @@ describe("run", () => {
         const code = run(specOf({ Widget: WIDGET }), ["--out", file], SILENT);
 
         expect(code).toBe(0);
-        expect(readFileSync(file, "utf8")).toContain("export type WidgetFilter = {");
+        expect(readFileSync(file, "utf8")).toContain("export type WidgetFilter =");
     });
 
     it("rejects --out without a file", () => {

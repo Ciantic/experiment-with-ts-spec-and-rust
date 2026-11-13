@@ -194,6 +194,10 @@ export function generateQueryFile(
 
     for (const query of queries) {
         lines.push("");
+        if (query.whereFields.length > 0) {
+            lines.push(...comparisonSchema(query));
+            lines.push("");
+        }
         lines.push(`export const ${query.schemaName} = z.strictObject({`);
         // Ordering is whitelisted by `@queryOrderBy`, so an unknown field fails rather than reaching SQL.
         if (query.orderFields.length > 0) {
@@ -203,10 +207,10 @@ export function generateQueryFile(
             lines.push(`        z.tuple([z.enum([${names}]), z.enum(["asc", "desc"])]),`);
             lines.push("    ).exactOptional(),");
         }
-        // A filter names one column and one comparison; the list is `and`ed, so a column may appear twice.
+        // A filter names one column and one comparison, or a group of alternatives; the list is `and`ed.
         if (query.whereFields.length > 0) {
             lines.push("    filters: z.array(");
-            lines.push(`        z.union([${query.whereFields.map(filterEntry).join(", ")}]),`);
+            lines.push(`        z.union([${query.filterSchemaName}, z.strictObject({ kind: z.literal("or"), filters: z.array(${query.filterSchemaName}) })]),`);
             lines.push("    ).exactOptional(),");
         }
         lines.push(...PAGING_FIELDS);
@@ -216,15 +220,20 @@ export function generateQueryFile(
     return lines.join("\n") + "\n";
 }
 
-/** One filter entry: a strict object naming one column, with one of the comparisons its `ops=` allows. */
-function filterEntry(field: ZodWhereField): string {
-    // An entry carries one comparison, so its column is a union of one-operator objects; two need two entries.
-    const comparisons = field.operators.map((operator) => {
+/** One comparison a read's filter may name, named once so the group can reuse it without nesting. */
+function comparisonSchema(query: ZodQuery): string[] {
+    return [
+        `/** One comparison a \`${query.entity}\` filter may name, as a flat \`column__operator\` key. */`,
+        `const ${query.filterSchemaName} = z.union([${query.whereFields.flatMap(filterEntries).join(", ")}]);`,
+    ];
+}
+
+/** One filter entry per comparison a column allows: a strict object with one flat `column__operator` key. */
+function filterEntries(field: ZodWhereField): string[] {
+    return field.operators.map((operator) => {
         const expression = operatorExpression(operator, field.expression);
-        return `z.strictObject({ ${operator}: ${expression}.exactOptional() })`;
+        return `z.strictObject({ ${JSON.stringify(`${field.name}__${operator}`)}: ${expression} })`;
     });
-    const column = comparisons.length === 1 ? comparisons[0] : `z.union([${comparisons.join(", ")}])`;
-    return `z.strictObject({ ${field.name}: ${column} })`;
 }
 
 /** The schema one comparison validates: the field's own shape, wrapped by how many values the operator takes. */

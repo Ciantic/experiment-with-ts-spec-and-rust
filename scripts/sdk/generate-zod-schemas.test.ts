@@ -685,12 +685,12 @@ describe("generateQueryFile", () => {
         expect(code).toContain("export const queryThingSchema = z.strictObject({");
         expect(code).toContain("    order: z.array(");
         expect(code).toContain('        z.tuple([z.enum(["name", "amount"]), z.enum(["asc", "desc"])]),');
-        expect(code).toContain("    filters: z.array(");
+        expect(code).toContain("const queryThingFilter = z.union([");
+        expect(code).toContain('z.strictObject({ "id__eq": primitives.brandedIdSchema<"ThingId">() })');
+        expect(code).toContain('z.strictObject({ "amount__gte": primitives.moneySchema })');
+        expect(code).toContain('z.strictObject({ "amount__lte": primitives.moneySchema })');
         expect(code).toContain(
-            '        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"ThingId">().exactOptional() }) })',
-        );
-        expect(code).toContain(
-            "z.strictObject({ amount: z.union([z.strictObject({ gte: primitives.moneySchema.exactOptional() }), z.strictObject({ lte: primitives.moneySchema.exactOptional() })]) })",
+            'z.union([queryThingFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryThingFilter) })]),',
         );
         expect(code).toContain("    limit: z.number().int().positive().exactOptional(),");
         expect(code).toContain("    offset: z.number().int().nonnegative().exactOptional(),");
@@ -711,9 +711,9 @@ describe("generateQueryFile", () => {
         const queries = model.queries.filter((query) => query.entity === "Filtered");
         const code = generateQueryFile("Filtered", queries, byName);
 
-        expect(code).toContain(
-            'z.strictObject({ deletedAt: z.union([z.strictObject({ eq: z.date().exactOptional() }), z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) })',
-        );
+        expect(code).toContain('z.strictObject({ "deletedAt__eq": z.date() })');
+        expect(code).toContain('z.strictObject({ "deletedAt__isNull": z.literal(true) })');
+        expect(code).toContain('z.strictObject({ "deletedAt__isNotNull": z.literal(true) })');
     });
 
     it("accepts a null test in a filter and rejects a value where the test belongs", () => {
@@ -736,15 +736,44 @@ describe("generateQueryFile", () => {
                 select: {},
             }).success;
 
-        expect(parses([{ deletedAt: { isNotNull: true } }])).toBe(true);
-        expect(parses([{ deletedAt: { isNull: true } }])).toBe(true);
-        expect(parses([{ deletedAt: { isNull: false } }])).toBe(false);
-        expect(parses([{ deletedAt: { isMaybe: true } }])).toBe(false);
-        expect(parses([{ deletedAt: { isNull: true, isNotNull: true } }])).toBe(false);
+        expect(parses([{ "deletedAt__isNotNull": true }])).toBe(true);
+        expect(parses([{ "deletedAt__isNull": true }])).toBe(true);
+        expect(parses([{ "deletedAt__isNull": false }])).toBe(false);
+        expect(parses([{ "deletedAt__isMaybe": true }])).toBe(false);
+        // A bare key names no operator, so it is refused.
+        expect(parses([{ deletedAt: true }])).toBe(false);
         // One entry names one column, so a filter that names two is refused.
-        expect(parses([{ deletedAt: { eq: new Date() }, id: { eq: "x" } }])).toBe(false);
+        expect(parses([{ deletedAt__eq: new Date(), id__eq: "x" }])).toBe(false);
         // A column at a time: two entries may name one column twice.
-        expect(parses([{ deletedAt: { eq: new Date() } }, { deletedAt: { isNull: true } }])).toBe(true);
+        expect(parses([{ "deletedAt__eq": new Date() }, { "deletedAt__isNull": true }])).toBe(true);
+    });
+
+    it("accepts an or group and refuses a group inside one", () => {
+        const { model } = generate({ entities: { Thing: THING } });
+        const byName = new Map(model.entities.map((entity) => [entity.name, entity]));
+        const queries = model.queries.filter((query) => query.entity === "Thing");
+        const code = generateQueryFile("Thing", queries, byName);
+        const z = zodStub();
+        const exports = tsLoadGeneratedModule<Record<string, Schema>>(
+            code,
+            tsStubImports({
+                zod: { z },
+                "../primitives.ts": { brandedIdSchema: () => z.string(), moneySchema: z.string() },
+                "./queryChild.ts": { queryChildSchema: z.strictObject({}) },
+                "./queryParent.ts": { queryParentSchema: z.strictObject({}) },
+            }),
+        );
+        const parses = (filters: unknown[]) => exports.queryThingSchema?.safeParse({ filters, select: {} }).success;
+
+        expect(parses([{ kind: "or", filters: [{ "id__eq": "x" }, { "amount__gte": "1" }] }])).toBe(true);
+        // A branch names one comparison, like a root entry.
+        expect(parses([{ kind: "or", filters: [{ id: { eq: "x" }, amount: { gte: "1" } }] }])).toBe(false);
+        // A group inside a group says nothing more than one group does, so the type and the schema both refuse it.
+        expect(
+            parses([{ kind: "or", filters: [{ kind: "or", filters: [{ "id__eq": "x" }] }] }]),
+        ).toBe(false);
+        // The discriminator is `or`, so another kind is not a group.
+        expect(parses([{ kind: "and", filters: [{ "id__eq": "x" }] }])).toBe(false);
     });
 
     it("accepts one filter per column and refuses an entry that names two", () => {
@@ -762,13 +791,14 @@ describe("generateQueryFile", () => {
         );
         const parses = (filters: unknown[]) => exports.queryScopedSchema?.safeParse({ filters, select: {} }).success;
 
-        expect(parses([{ tenantId: { eq: "t1" } }])).toBe(true);
-        expect(parses([{ tenantId: { eq: "t1" } }, { id: { eq: "x" } }])).toBe(true);
+        expect(parses([{ "tenantId__eq": "t1" }])).toBe(true);
+        expect(parses([{ "tenantId__eq": "t1" }, { "id__eq": "x" }])).toBe(true);
         // Two entries may name one column twice, since the list is combined with `and`.
-        expect(parses([{ tenantId: { eq: "t1" } }, { tenantId: { eq: "t2" } }])).toBe(true);
-        expect(parses([{ id: { eq: "x" }, tenantId: { eq: "t1" } }])).toBe(false);
+        expect(parses([{ "tenantId__eq": "t1" }, { "tenantId__eq": "t2" }])).toBe(true);
+        // One entry carries one comparison, so an entry naming two keys is refused.
+        expect(parses([{ "id__eq": "x", "tenantId__eq": "t1" }])).toBe(false);
         // A comparison the column's ops= does not name is refused.
-        expect(parses([{ id: { gte: "x" } }])).toBe(false);
+        expect(parses([{ "id__gte": "x" }])).toBe(false);
     });
 
     it("evaluates to a working args schema", () => {
@@ -788,11 +818,11 @@ describe("generateQueryFile", () => {
         );
 
         expect(exports.queryThingSchema?.safeParse({ select: {} }).success).toBe(true);
-        expect(exports.queryThingSchema?.safeParse({ filters: [{ id: { eq: "x" } }], select: {} }).success).toBe(true);
+        expect(exports.queryThingSchema?.safeParse({ filters: [{ "id__eq": "x" }], select: {} }).success).toBe(true);
         // A flat filter field and a set where one comparison belongs are both rejected.
         expect(exports.queryThingSchema?.safeParse({ id: { eq: "x" }, select: {} }).success).toBe(false);
         expect(exports.queryThingSchema?.safeParse({ filters: [{ id: ["x"] }], select: {} }).success).toBe(false);
-        expect(exports.queryThingSchema?.safeParse({ filters: { id: { eq: "x" } }, select: {} }).success).toBe(false);
+        expect(exports.queryThingSchema?.safeParse({ filters: { "id__eq": "x" }, select: {} }).success).toBe(false);
         expect(exports.queryThingSchema?.safeParse({ order: [["name", "asc"]], select: {} }).success).toBe(true);
         expect(exports.queryThingSchema?.safeParse({ order: [["amount", "desc"]], select: {} }).success).toBe(true);
         // An unknown field and an unknown direction are both rejected before they reach SQL.
@@ -807,13 +837,13 @@ describe("generateQueryFile", () => {
         expect(exports.queryThingSchema?.safeParse({ limit: 1.5, select: {} }).success).toBe(false);
         // Comparisons are whitelisted by field and operator, so a stray one is a 400.
         expect(
-            exports.queryThingSchema?.safeParse({ filters: [{ amount: { gte: "1" } }], select: {} }).success,
+            exports.queryThingSchema?.safeParse({ filters: [{ "amount__gte": "1" }], select: {} }).success,
         ).toBe(true);
         expect(
-            exports.queryThingSchema?.safeParse({ filters: [{ amount: { gt: "1" } }], select: {} }).success,
+            exports.queryThingSchema?.safeParse({ filters: [{ "amount__gt": "1" }], select: {} }).success,
         ).toBe(false);
         expect(
-            exports.queryThingSchema?.safeParse({ filters: [{ name: { eq: "x" } }], select: {} }).success,
+            exports.queryThingSchema?.safeParse({ filters: [{ "name__eq": "x" }], select: {} }).success,
         ).toBe(false);
     });
 });

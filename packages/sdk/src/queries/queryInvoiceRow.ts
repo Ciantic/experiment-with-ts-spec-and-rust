@@ -22,9 +22,12 @@ export const queryInvoiceRowSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `InvoiceRow` filter may name, as a flat `column__operator` key. */
+const queryInvoiceRowFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"InvoiceRowId">() }), z.strictObject({ "tenantId__eq": primitives.brandedIdSchema<"TenantId">() })]);
+
 export const queryInvoiceRowSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"InvoiceRowId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) })]),
+        z.union([queryInvoiceRowFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryInvoiceRowFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

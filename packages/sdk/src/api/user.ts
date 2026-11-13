@@ -33,7 +33,7 @@ export type QueryUserErrors =
  */
 export function queryUser<S extends Selection<User>>(
     opts: {
-        filters?: Filters<User, UserFilter>;
+        filters?: Filters<UserFilter>;
         limit?: number;
         offset?: number;
         select: S;

@@ -9,6 +9,6 @@ import { queryModel } from "./model.ts";
 const resolver = createResolver(queryModel);
 
 /** Query `Email` rows over the filters it carries, combined with and. */
-export function queryEmail<S extends Selection<Email>>(db: SqlExecutor, opts: { filters?: Filters<Email, EmailFilter>; order?: Order<"createdAt" | "updatedAt">[]; limit?: number; offset?: number; select: S }): Promise<Selected<Email, S>[]> {
+export function queryEmail<S extends Selection<Email>>(db: SqlExecutor, opts: { filters?: Filters<EmailFilter>; order?: Order<"createdAt" | "updatedAt">[]; limit?: number; offset?: number; select: S }): Promise<Selected<Email, S>[]> {
     return resolver.resolveMany<Email, S>(db, "email", { select: opts.select, filters: opts.filters, order: opts.order, limit: opts.limit, offset: opts.offset });
 }

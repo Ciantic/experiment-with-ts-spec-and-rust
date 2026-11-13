@@ -30,12 +30,15 @@ export const queryInvoiceSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `Invoice` filter may name, as a flat `column__operator` key. */
+const queryInvoiceFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"InvoiceId">() }), z.strictObject({ "tenantId__eq": primitives.brandedIdSchema<"TenantId">() }), z.strictObject({ "customerId__eq": primitives.brandedIdSchema<"CustomerId">() }), z.strictObject({ "customerId__any": z.array(primitives.brandedIdSchema<"CustomerId">()) }), z.strictObject({ "sellerId__eq": primitives.brandedIdSchema<"SellerId">() }), z.strictObject({ "sellerId__any": z.array(primitives.brandedIdSchema<"SellerId">()) }), z.strictObject({ "issueDate__gte": z.date() }), z.strictObject({ "issueDate__lte": z.date() }), z.strictObject({ "issueDate__between": z.tuple([z.date(), z.date()]) }), z.strictObject({ "deletedAt__eq": z.date() })]);
+
 export const queryInvoiceSchema = z.strictObject({
     order: z.array(
         z.tuple([z.enum(["createdAt", "updatedAt"]), z.enum(["asc", "desc"])]),
     ).exactOptional(),
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"InvoiceId">().exactOptional() }) }), z.strictObject({ tenantId: z.strictObject({ eq: primitives.brandedIdSchema<"TenantId">().exactOptional() }) }), z.strictObject({ customerId: z.union([z.strictObject({ eq: primitives.brandedIdSchema<"CustomerId">().exactOptional() }), z.strictObject({ any: z.array(primitives.brandedIdSchema<"CustomerId">()).exactOptional() })]) }), z.strictObject({ sellerId: z.union([z.strictObject({ eq: primitives.brandedIdSchema<"SellerId">().exactOptional() }), z.strictObject({ any: z.array(primitives.brandedIdSchema<"SellerId">()).exactOptional() })]) }), z.strictObject({ issueDate: z.union([z.strictObject({ gte: z.date().exactOptional() }), z.strictObject({ lte: z.date().exactOptional() }), z.strictObject({ between: z.tuple([z.date(), z.date()]).exactOptional() })]) }), z.strictObject({ deletedAt: z.strictObject({ eq: z.date().exactOptional() }) })]),
+        z.union([queryInvoiceFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryInvoiceFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

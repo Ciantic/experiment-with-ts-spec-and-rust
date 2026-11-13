@@ -11,9 +11,12 @@ export const queryAuditLogSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `AuditLog` filter may name, as a flat `column__operator` key. */
+const queryAuditLogFilter = z.union([z.strictObject({ "id__eq": primitives.autoIncrementSchema<"AuditLogId">() })]);
+
 export const queryAuditLogSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.autoIncrementSchema<"AuditLogId">().exactOptional() }) })]),
+        z.union([queryAuditLogFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryAuditLogFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),

@@ -73,7 +73,7 @@ export function argumentType(
         case "query":
             // The read's own filter list, over the shared map, so the guard accepts exactly what the route validates.
             return {
-                type: `{ filters?: readonly Filter<${name}, ${filterTypeName(name)}>[] | undefined }`,
+                type: `{ filters?: Filters<${filterTypeName(name)}> | undefined }`,
                 filterType: filterTypeName(name),
             };
         case "watch":
@@ -119,29 +119,35 @@ function checkLines(scope: string, action: string, optional: boolean, emptyMessa
     return lines;
 }
 
-/** The tenants a read's filter list names: one comparison per entry, so each entry is read on its own. */
+/** The tenants a read's filter list names: one flat comparison per entry, and only at the root of the list. */
 function queryTenantLines(entity: RestEntity, field: string): string[] {
     const operators = entity.whereFields.find((candidate) => candidate.name === field)?.operators ?? [];
-    // `Filter` compares the column's non-null type, so an optional owner's set holds the id, never `undefined`.
+    // An optional owner's column is nullable, so the tenant it names is never `undefined`.
     const tenant = `NonNullable<${entity.entity}[${JSON.stringify(field)}]>`;
     const lines = [
         `    const tenants = new Set<${tenant}>();`,
         "    for (const filter of argument.filters ?? []) {",
-        `        const comparison = filter.${field};`,
-        "        if (comparison === undefined) {",
+        "        // An `or` group may hold the tenant, but only an entry at the root counts; a group is a refusal.",
+        '        if ("kind" in filter) {',
         "            continue;",
         "        }",
     ];
     // Only the equality and membership operators name a tenant; a range, a pattern, or a null test cannot.
+    const read = (operator: string, value: string) =>
+        lines.push(`        if (${JSON.stringify(`${field}__${operator}`)} in filter) {`, value, "        }");
     if (operators.includes("eq")) {
-        lines.push("        if (comparison.eq !== undefined) {", "            tenants.add(comparison.eq);", "        }");
+        read("eq", `            tenants.add(filter[${JSON.stringify(`${field}__eq`)}]);`);
     }
     for (const operator of ["in", "any"] as const) {
         if (operators.includes(operator)) {
-            lines.push(
-                `        for (const value of comparison.${operator} ?? []) {`,
-                "            tenants.add(value);",
-                "        }",
+            const key = JSON.stringify(`${field}__${operator}`);
+            read(
+                operator,
+                [
+                    `            for (const value of filter[${key}]) {`,
+                    "                tenants.add(value);",
+                    "            }",
+                ].join("\n"),
             );
         }
     }
@@ -230,7 +236,7 @@ export function renderGuardModule(
     // A read's argument is the query read's own filter list, which names both the entity and `Filter`.
     if (argument.filterType !== undefined) {
         lines.push(`import type { ${argument.filterType} } from "${FILTERS_IMPORT}";`);
-        lines.push(`import type { Filter } from "${SELECTION_IMPORT}";`);
+        lines.push(`import type { Filters } from "${SELECTION_IMPORT}";`);
         lines.push(`import type { ${entity.entity} } from "${entity.importSpecifier}";`);
     } else if (argument.importSpecifier !== undefined) {
         lines.push(`import type { ${tenantType?.name ?? entity.entity} } from "${argument.importSpecifier}";`);

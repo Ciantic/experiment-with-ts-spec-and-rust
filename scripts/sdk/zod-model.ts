@@ -167,6 +167,8 @@ export interface ZodQuery {
     /** The entity the read queries, which groups the generated file and supplies `select`. */
     entity: string;
     schemaName: string;
+    /** The name of the module-private schema one entry of `filters` validates, reused by the group's branches. */
+    filterSchemaName: string;
     /** The orderable field names, from `@queryOrderBy`; the renderer validates `order` against them. */
     orderFields: string[];
     /** The filterable fields, with their `@queryFilter ops=`: the renderer validates each filter entry against them. */
@@ -546,6 +548,7 @@ function buildQueries(
         queries.push({
             entity: spec.name,
             schemaName: querySchemaName(spec.name),
+            filterSchemaName: `${querySchemaName(spec.name).replace(/Schema$/, "")}Filter`,
             orderFields,
             whereFields,
             dependencies: [...context.dependencies].sort((a, b) => a.localeCompare(b)),

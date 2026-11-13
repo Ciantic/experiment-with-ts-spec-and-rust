@@ -208,16 +208,16 @@ describe("renderGuardModule", () => {
         const code = moduleOf(OWNED_DOMAIN, "Owned", "query");
 
         expect(code).toContain('import type { OwnedFilter } from "sdk/filters.ts";');
-        expect(code).toContain('import type { Filter } from "sdk/selection.ts";');
+        expect(code).toContain('import type { Filters } from "sdk/selection.ts";');
         expect(code).toContain('import type { Owned } from "spec/fixtures/Owned.ts";');
         expect(code).toContain("const tenants = new Set<NonNullable<Owned[\"tenantId\"]>>();");
         expect(code).toContain("for (const filter of argument.filters ?? []) {");
-        expect(code).toContain("const comparison = filter.tenantId;");
-        expect(code).toContain("tenants.add(comparison.eq);");
+
+        expect(code).toContain('tenants.add(filter["tenantId__eq"]);');
         expect(code).toContain("if (tenants.size === 0) {");
         expect(code).toContain('if (!(await ctx.hasTenantPermission("owned", "query", tenant))) {');
         expect(code).toContain(
-            "export const canQueryOwned: RouteGuard<{ filters?: readonly Filter<Owned, OwnedFilter>[] | undefined }>",
+            "export const canQueryOwned: RouteGuard<{ filters?: Filters<OwnedFilter> | undefined }>",
         );
         expect(code).not.toContain("getOwnedTenants");
     });
@@ -256,8 +256,8 @@ describe("renderGuardModule", () => {
         const code = moduleOf(OPTIONAL_DOMAIN, "OptionalEntity", "query");
 
         // A null test is one of the column's operators, so it typechecks; it names no tenant, so the set stays empty.
-        expect(code).toContain("filters?: readonly Filter<OptionalEntity, OptionalEntityFilter>[] | undefined");
-        expect(code).toContain("if (comparison.eq !== undefined) {");
+        expect(code).toContain("filters?: Filters<OptionalEntityFilter> | undefined");
+        expect(code).toContain('if ("tenantId__eq" in filter) {');
         expect(code).toContain("for (const filter of argument.filters ?? []) {");
         expect(code).toContain('"optionalEntity:query names no tenant, which needs the global permission"');
     });

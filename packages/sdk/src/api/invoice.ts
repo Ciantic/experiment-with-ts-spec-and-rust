@@ -35,7 +35,7 @@ export type QueryInvoiceErrors =
  */
 export function queryInvoice<S extends Selection<Invoice>>(
     opts: {
-        filters?: Filters<Invoice, InvoiceFilter>;
+        filters?: Filters<InvoiceFilter>;
         order?: Order<"createdAt" | "updatedAt">[];
         limit?: number;
         offset?: number;

@@ -32,7 +32,7 @@ export type QueryAuditLogErrors =
  */
 export function queryAuditLog<S extends Selection<AuditLog>>(
     opts: {
-        filters?: Filters<AuditLog, AuditLogFilter>;
+        filters?: Filters<AuditLogFilter>;
         limit?: number;
         offset?: number;
         select: S;

@@ -16,9 +16,12 @@ export const queryUserSessionSelectSchema = z.lazy(() =>
     }),
 );
 
+/** One comparison a `UserSession` filter may name, as a flat `column__operator` key. */
+const queryUserSessionFilter = z.union([z.strictObject({ "id__eq": primitives.brandedIdSchema<"UserSessionId">() }), z.strictObject({ "userId__eq": primitives.brandedIdSchema<"UserId">() }), z.strictObject({ "tokenHash__eq": primitives.userSessionTokenHashSchema }), z.strictObject({ "expiresAt__gt": z.date() }), z.strictObject({ "expiresAt__lte": z.date() }), z.strictObject({ "revokedAt__isNull": z.literal(true) }), z.strictObject({ "revokedAt__isNotNull": z.literal(true) })]);
+
 export const queryUserSessionSchema = z.strictObject({
     filters: z.array(
-        z.union([z.strictObject({ id: z.strictObject({ eq: primitives.brandedIdSchema<"UserSessionId">().exactOptional() }) }), z.strictObject({ userId: z.strictObject({ eq: primitives.brandedIdSchema<"UserId">().exactOptional() }) }), z.strictObject({ tokenHash: z.strictObject({ eq: primitives.userSessionTokenHashSchema.exactOptional() }) }), z.strictObject({ expiresAt: z.union([z.strictObject({ gt: z.date().exactOptional() }), z.strictObject({ lte: z.date().exactOptional() })]) }), z.strictObject({ revokedAt: z.union([z.strictObject({ isNull: z.literal(true).exactOptional() }), z.strictObject({ isNotNull: z.literal(true).exactOptional() })]) })]),
+        z.union([queryUserSessionFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryUserSessionFilter) })]),
     ).exactOptional(),
     limit: z.number().int().positive().exactOptional(),
     offset: z.number().int().nonnegative().exactOptional(),
