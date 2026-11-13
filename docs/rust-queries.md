@@ -11,31 +11,30 @@ backend, though each lowers it to its own SQL.
 ## The generated module
 
 ```rust
-pub fn build_query_widget(options: WidgetReadOptions) -> Result<PlannedQuery, ReadError> { … }
+impl WidgetReadOptions {
+    pub fn as_sql(&self) -> Result<String, ReadError> { … }
 
-pub async fn query_widget(
-    db: &impl SqlExecutor,
-    options: WidgetReadOptions,
-) -> Result<Vec<WidgetSelect>, ReadError> { … }
+    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<WidgetSelect>, ReadError> { … }
+}
 ```
 
 The read takes the entity's own options, `WidgetReadOptions`, so its selection
 and ordering can only name `Widget`'s columns. The generic `ReadOptions` is not
-part of the generated surface; the entity options convert to it internally.
+part of the generated surface; the entity options convert to it internally. A
+module declares types and builders, and these two methods are what it does with
+them: `query` runs the statement and decodes every row into the model's selected
+shape, `WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and `as_sql`
+reports the same statement without the database, to log or assert on. `as_sql`
+borrows, so a read can be reported and then still run.
 
-`query_widget` runs the statement and decodes every row into the model's
-selected shape, `WidgetSelect`, from `crates/models` (`docs/rust-models.md`).
 A field the read did not select stays `Partial::Unset`, so the caller can tell
-"not read" from "null". `build_query_widget` is the same read without the
-database: a `PlannedQuery`, whose SQL and typed parameters a caller can hand to
-a driver itself.
+"not read" from "null".
 
 ## Using a read
 
 ```rust
 use infra::db::queries::{
     InvoiceDeletedAtFilter, InvoiceOrderField, InvoiceReadOptions, InvoiceSelectField, InvoiceTenantIdFilter,
-    query_invoice,
 };
 use infra::db::ReadError;
 use models::domain::invoicing_service::invoice::InvoiceSelect;
@@ -48,7 +47,7 @@ async fn open_invoices(
     tenant: &TenantId,
     limit: u64,
 ) -> Result<Vec<InvoiceSelect>, ReadError> {
-    let options = InvoiceReadOptions::with_select([
+    InvoiceReadOptions::with_select([
         InvoiceSelectField::Id,
         InvoiceSelectField::Number,
         InvoiceSelectField::TotalAmount,
@@ -57,16 +56,17 @@ async fn open_invoices(
     .filter(InvoiceTenantIdFilter::Eq(tenant.clone()))
     .filter(InvoiceDeletedAtFilter::Eq(now))
     .order(InvoiceOrderField::CreatedAt.desc())
-    .limit(limit);
-
-    query_invoice(pool, options).await
+    .limit(limit)
+    .query(pool)
+    .await
 }
 ```
 
-`query_invoice` takes any `SqlExecutor`; `sqlx::PgPool` implements it, so the pool
-passes straight through. Each row arrives as `InvoiceSelect`, where a field the
-read did not select stays `Partial::Unset` — the caller can tell "not read" from
-"null" without a second query.
+`query` is the builder's last step, and it takes any `SqlExecutor`; `sqlx::PgPool`
+implements it, so the pool passes straight through. The read then exists in one
+expression, with no binding to name. Each row arrives as `InvoiceSelect`, where a
+field the read did not select stays `Partial::Unset` — the caller can tell "not
+read" from "null" without a second query.
 
 Because `filter` takes `impl Into<InvoiceFilter>`, a column's own filter type can
 be passed straight in, and the same column may be filtered more than once:
@@ -81,6 +81,9 @@ let options = InvoiceReadOptions::default()
     ])
     .limit(1);
 ```
+
+A builder is only needed when the read is passed somewhere; otherwise the same
+chain ends in `query(pool).await`.
 
 ```
 SELECT * FROM "invoice"
@@ -103,15 +106,14 @@ column:
 One row is the first result of a limited read, since there is no separate `get`:
 
 ```rust
-let invoice = query_invoice(pool, options).await?.pop();
+let invoice = options.query(pool).await?.pop();
 ```
 
-An empty `select` reads every column, and `build_query_invoice` returns the
-statement without running it:
+An empty `select` reads every column, and `as_sql` reports the statement instead
+of running it, so the read can be logged or asserted on before it is sent:
 
 ```rust
-let planned = build_query_invoice(options)?;
-println!("{} {:?}", planned.sql, planned.params);
+println!("{}", options.as_sql()?);
 // SELECT "id", "number", "totalAmount", "createdAt" FROM "invoice"
 //   WHERE "tenantId" = $1 AND "deletedAt" IS NULL
 //   ORDER BY "createdAt" DESC LIMIT 25
@@ -297,6 +299,9 @@ let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelec
     .limit(50);
 ```
 
+Every builder takes and returns `self`, and the last step is either `query`, which
+runs the read, or `as_sql`, which reports the statement it would run.
+
 `into_read_options` lowers them to the source-independent `ReadOptions` in
 `crates/infra/src/db/read_options.rs`. Both that method and the type are
 crate-internal; the fields are `datagrid_query` types:
@@ -389,7 +394,9 @@ it.
 ## Planned parameters
 
 `ReadOptions::plan` builds the statement and pairs every parameter with the
-column type of the filter that produced it:
+column type of the filter that produced it. It is crate-internal: a read reaches
+it through `query`, which binds the parameters as the statement declares them,
+while `as_sql` reports only the text.
 
 ```rust
 pub struct PlannedQuery {
@@ -433,7 +440,7 @@ names, which is why the selected shape carries `#[serde(rename_all =
 directly:
 
 ```rust
-let widgets = query_widget(&pool, options).await?;
+let widgets = options.query(&pool).await?;
 ```
 
 Binding is type-directed. sqlx declares each parameter's type when it prepares

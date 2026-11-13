@@ -678,8 +678,42 @@ function withSelectSignature(select: string): string[] {
         : [oneLine];
 }
 
-/** Render the entity's read options, whose fields are the entity's own typed sets. */
-function renderReadOptions(entity: string): string[] {
+/** A `use` statement as rustfmt lays it out: items filled to the line width, each line indented, trailing commas. */
+function useList(path: string, items: string[]): string[] {
+    const filled: string[] = [];
+    let line = "";
+    for (const item of items) {
+        const piece = `${item},`;
+        if (line !== "" && 4 + line.length + 1 + piece.length > MAX_LINE_WIDTH) {
+            filled.push(line);
+            line = piece;
+            continue;
+        }
+        line = line === "" ? piece : `${line} ${piece}`;
+    }
+    filled.push(line);
+    if (filled.length === 1 && `use ${path}::{${filled[0]}};`.length <= MAX_LINE_WIDTH) {
+        return [`use ${path}::{${filled[0]}};`];
+    }
+    return [`use ${path}::{`, ...filled.map((entry) => `    ${entry}`), "};"];
+}
+
+/** The `query` signature, wrapped when the entity's selected type makes it too long for one line. */
+function querySignature(entity: string): string[] {
+    const oneLine = `    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<${entity}Select>, ReadError> {`;
+    if (oneLine.length <= MAX_LINE_WIDTH) {
+        return [oneLine];
+    }
+    return [
+        "    pub async fn query(",
+        "        self,",
+        "        db: &impl SqlExecutor,",
+        `    ) -> Result<Vec<${entity}Select>, ReadError> {`,
+    ];
+}
+
+/** Render the entity's read options, whose fields are the entity's own typed sets; `table` is what a read plans against. */
+function renderReadOptions(entity: string, table: string): string[] {
     const options = `${entity}ReadOptions`;
     const select = `${entity}SelectField`;
     const selection = `${entity}Selection`;
@@ -764,6 +798,28 @@ function renderReadOptions(entity: string): string[] {
         "        self",
         "    }",
         "",
+        "    /// The statement this read runs, so a caller can log it before deciding to run it.",
+        "    ///",
+        "    /// # Errors",
+        "    ///",
+        "    /// Returns [`ReadError::Build`] when the options do not form a valid statement.",
+        `    pub fn as_sql(&self) -> Result<String, ReadError> {`,
+        "        let read = self.clone().into_read_options()?;",
+        `        Ok(read.plan(${JSON.stringify(table)}, None)?.sql)`,
+        "    }",
+        "",
+        "    /// Run this read, decoding every row into the entity's selected shape.",
+        "    ///",
+        "    /// # Errors",
+        "    ///",
+        "    /// Returns [`ReadError`] when the statement cannot be built, run, or decoded.",
+        ...querySignature(entity),
+        "        let read = self.into_read_options()?;",
+        `        let query = read.plan(${JSON.stringify(table)}, None)?;`,
+        "        let rows = db.query(&query.sql, &query.params).await?;",
+        "        decode_rows(rows)",
+        "    }",
+        "",
         "    /// The source-independent read the crate's planner takes; not part of the public surface.",
         "    ///",
         "    /// # Errors",
@@ -798,13 +854,13 @@ function renderReadOptions(entity: string): string[] {
 /** Render one entity's query: its typed fields, its typed read options, and the read itself. */
 export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const entity = table.interfaceName;
-    const query = queryFunctionName(entity);
-    const options = `${entity}ReadOptions`;
     const lines: string[] = [HEADER, ""];
-    lines.push("use crate::db::{");
-    lines.push("    FilterKind, PlannedQuery, ReadError, ReadOptions, SqlExecutor, SqlType, TypedFilter,");
-    lines.push("    decode_rows, flat_filter,");
-    lines.push("};");
+    lines.push(
+        ...useList(
+            "crate::db",
+            ["FilterKind", "ReadError", "ReadOptions", "SqlExecutor", "SqlType", "TypedFilter", "decode_rows", "flat_filter"].sort(),
+        ),
+    );
     const filters = filterFields(table, spec);
     // No `Combinator`: a group's kind lowers through `FilterKind::combinator`.
     const builderImports = ["SelectColumn", "Sort", "SortDirection"];
@@ -840,38 +896,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push("");
     lines.push(...renderOrderStruct(entity));
     lines.push("");
-    lines.push(...renderReadOptions(entity));
-    lines.push("");
-    lines.push(`/// Build the read for \`${entity}\` over \`${table.name}\`.`);
-    lines.push("///");
-    lines.push("/// # Errors");
-    lines.push("///");
-    lines.push("/// Returns [`ReadError::Build`] when the options do not form a valid statement.");
-    const signature = `pub fn build_${query}(options: ${options}) -> Result<PlannedQuery, ReadError> {`;
-    if (signature.length > MAX_LINE_WIDTH) {
-        lines.push(`pub fn build_${query}(`);
-        lines.push(`    options: ${options},`);
-        lines.push(") -> Result<PlannedQuery, ReadError> {");
-    } else {
-        lines.push(signature);
-    }
-    lines.push("    let read = options.into_read_options()?;");
-    lines.push(`    read.plan(${JSON.stringify(table.name)}, None)`);
-    lines.push("}");
-    lines.push("");
-    lines.push(`/// Read \`${entity}\` rows, decoded into \`${entity}Select\`.`);
-    lines.push("///");
-    lines.push("/// # Errors");
-    lines.push("///");
-    lines.push("/// Returns [`ReadError`] when the statement cannot be built, run, or decoded.");
-    lines.push(`pub async fn ${query}(`);
-    lines.push("    db: &impl SqlExecutor,");
-    lines.push(`    options: ${options},`);
-    lines.push(`) -> Result<Vec<${entity}Select>, ReadError> {`);
-    lines.push(`    let query = build_${query}(options)?;`);
-    lines.push("    let rows = db.query(&query.sql, &query.params).await?;");
-    lines.push("    decode_rows(rows)");
-    lines.push("}");
+    lines.push(...renderReadOptions(entity, table.name));
     return lines.join("\n") + "\n";
 }
 

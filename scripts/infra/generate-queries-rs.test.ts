@@ -158,9 +158,10 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub select: InvoiceSelection,");
         expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
         expect(code).toContain("pub order: Vec<InvoiceOrder>,");
-        expect(code).toContain("pub fn build_query_invoice(options: InvoiceReadOptions) -> Result<PlannedQuery, ReadError>");
-        expect(code).toContain("pub async fn query_invoice(");
-        expect(code).toContain("    options: InvoiceReadOptions,");
+        expect(code).toContain("pub fn as_sql(&self) -> Result<String, ReadError> {");
+        expect(code).toContain(
+            "    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<InvoiceSelect>, ReadError> {",
+        );
     });
 
     it("converts the typed selection and ordering to the builder's own types", () => {
@@ -181,6 +182,32 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub fn filter_or(");
         expect(code).toContain("pub fn filter_and(");
         expect(code).toContain("pub fn order(mut self, order: InvoiceOrder) -> Self");
+    });
+
+    it("plans the read from the builder, so a caller can log the statement before running it", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("        let read = self.clone().into_read_options()?;");
+        expect(code).toContain('        Ok(read.plan("invoice", None)?.sql)');
+    });
+
+    it("runs the read from the builder, binding its own parameters", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("        let read = self.into_read_options()?;");
+        expect(code).toContain('        let query = read.plan("invoice", None)?;');
+        expect(code).toContain("        let rows = db.query(&query.sql, &query.params).await?;");
+        expect(code).toContain("        decode_rows(rows)");
+    });
+
+    it("wraps a query signature the entity's selected type makes too long", () => {
+        const long = table("tenant_shared_permission", "TenantSharedPermission", [column("id", { primaryKey: true })]);
+        const code = renderQueryModule(long, spec);
+
+        expect(code).toContain(
+            "    pub async fn query(\n        self,\n        db: &impl SqlExecutor,\n    ) -> Result<Vec<TenantSharedPermissionSelect>, ReadError> {",
+        );
+        expect(code).toContain('        let query = read.plan("tenant_shared_permission", None)?;');
     });
 
     it("accepts the same column twice, since the list is combined with and", () => {
@@ -310,12 +337,11 @@ describe("renderQueryModule", () => {
         expect(code).toContain("Ok(Self { field, direction })");
     });
 
-    it("decodes into the entity's selected shape", () => {
+    it("keeps the read on the builder, with no free function beside it", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub async fn query_invoice(");
-        expect(code).toContain(") -> Result<Vec<InvoiceSelect>, ReadError> {");
-        expect(code).toContain("decode_rows(rows)");
+        expect(code).not.toContain("pub async fn query_invoice(");
+        expect(code).not.toContain("pub fn build_query_invoice(");
     });
 
     it("emits an enum per field set with the columns it names", () => {
