@@ -309,6 +309,12 @@ function renderSelectStruct(entity: string): string[] {
         ...selectionCall(field),
         "    }",
         "}",
+        "",
+        `impl FromIterator<${field}> for ${select} {`,
+        `    fn from_iter<I: IntoIterator<Item = ${field}>>(fields: I) -> Self {`,
+        "        Self(fields.into_iter().collect())",
+        "    }",
+        "}",
     ];
 }
 
@@ -657,27 +663,6 @@ function renderOrderStruct(entity: string): string[] {
     ];
 }
 
-/** The `filter_or` signature, wrapped when the entity's name makes it too long. */
-function filterListSignature(name: string, entity: string): string[] {
-    const oneLine = `    pub fn ${name}(mut self, filters: impl IntoIterator<Item = impl Into<${entity}Filter>>) -> Self {`;
-    return oneLine.length <= MAX_LINE_WIDTH
-        ? [oneLine]
-        : [
-              `    pub fn ${name}(`,
-              "        mut self,",
-              `        filters: impl IntoIterator<Item = impl Into<${entity}Filter>>,`,
-              "    ) -> Self {",
-          ];
-}
-
-/** The `with_select` signature, wrapped when the entity's name makes it too long for one line. */
-function withSelectSignature(select: string): string[] {
-    const oneLine = `    pub fn with_select(fields: impl IntoIterator<Item = ${select}>) -> Self {`;
-    return oneLine.length > MAX_LINE_WIDTH
-        ? ["    pub fn with_select(", `        fields: impl IntoIterator<Item = ${select}>,`, "    ) -> Self {"]
-        : [oneLine];
-}
-
 /** A `use` statement as rustfmt lays it out: items filled to the line width, each line indented, trailing commas. */
 function useList(path: string, items: string[]): string[] {
     const filled: string[] = [];
@@ -698,167 +683,57 @@ function useList(path: string, items: string[]): string[] {
     return [`use ${path}::{`, ...filled.map((entry) => `    ${entry}`), "};"];
 }
 
-/** The `query` signature, wrapped when the entity's selected type makes it too long for one line. */
-function querySignature(entity: string): string[] {
-    const oneLine = `    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<${entity}Select>, ReadError> {`;
-    if (oneLine.length <= MAX_LINE_WIDTH) {
-        return [oneLine];
-    }
-    return [
-        "    pub async fn query(",
-        "        self,",
-        "        db: &impl SqlExecutor,",
-        `    ) -> Result<Vec<${entity}Select>, ReadError> {`,
-    ];
-}
-
-/** Render the entity's query builder, whose fields are the entity's own typed sets; `table` is what it plans against. */
-function renderQueryBuilder(entity: string, table: string): string[] {
+/** Render the entity's query type, plus how the entity lowers to the shared builder's read. */
+function renderReadEntity(entity: string, table: string): string[] {
     const builder = `${entity}Query`;
-    const select = `${entity}SelectField`;
-    const selection = `${entity}Selection`;
-    const order = `${entity}Order`;
     return [
-        `/// What a query of \`${entity}\` selects, filters, orders, and pages.`,
-        "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
-        '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
-        `pub struct ${builder} {`,
-        "    /// The selected columns; empty (or omitted) selects every column.",
-        '    #[serde(default)]',
-        `    pub select: ${selection},`,
-        "    /// The filters, combined with `and`; the same column may appear more than once.",
-        '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
-        `    pub filters: Vec<${entity}Filter>,`,
-        "    /// The ordering clauses, in order.",
-        '    #[serde(default, skip_serializing_if = "Vec::is_empty")]',
-        `    pub order: Vec<${order}>,`,
-        "    /// The maximum number of rows.",
-        '    #[serde(default, skip_serializing_if = "Option::is_none")]',
-        "    pub limit: Option<u64>,",
-        "    /// The number of leading rows to skip.",
-        '    #[serde(default, skip_serializing_if = "Option::is_none")]',
-        "    pub offset: Option<u64>,",
-        "}",
+        `/// The query of \`${entity}\`: its selection, filters, ordering, and paging.`,
+        `pub type ${builder} = EntityQuery<${entity}>;`,
         "",
-        `impl ${builder} {`,
-        "    /// A query that selects `fields`.",
-        "    #[must_use]",
-        ...withSelectSignature(select),
-        "        Self {",
-        `            select: ${selection}(fields.into_iter().collect()),`,
-        "            ..Self::default()",
+        `impl ReadEntity for ${entity} {`,
+        `    type Select = ${entity}Select;`,
+        `    type SelectField = ${entity}SelectField;`,
+        `    type Selection = ${entity}Selection;`,
+        `    type Filter = ${entity}Filter;`,
+        `    type Order = ${entity}Order;`,
+        "",
+        `    const TABLE: &'static str = ${JSON.stringify(table)};`,
+        "",
+        "    fn group(kind: FilterKind, filters: Vec<Self::Filter>) -> Self::Filter {",
+        `        ${entity}Filter::Group { kind, filters }`,
+        "    }",
+        "",
+        "    fn lower(",
+        "        select: Self::Selection,",
+        "        filters: Vec<Self::Filter>,",
+        "        order: Vec<Self::Order>,",
+        "        limit: Option<u64>,",
+        "        offset: Option<u64>,",
+        "    ) -> Result<LoweredRead, ReadError> {",
+        "        let mut typed = Vec::new();",
+        "        for filter in filters {",
+        "            typed.extend(filter.into_typed_filters()?);",
         "        }",
-        "    }",
-        "",
-        `    /// Add a filter; the query combines them with \`and\`. The same column may be filtered twice.`,
-        "    #[must_use]",
-        `    pub fn filter(mut self, filter: impl Into<${entity}Filter>) -> Self {`,
-        "        self.filters.push(filter.into());",
-        "        self",
-        "    }",
-        "",
-        `    /// Add filters of which any may match; the query's own list stays \`and\`ed.`,
-        "    #[must_use]",
-        ...filterListSignature("filter_or", entity),
-        `        self.filters.push(${entity}Filter::Group {`,
-        "            kind: FilterKind::Or,",
-        "            filters: filters.into_iter().map(Into::into).collect(),",
-        "        });",
-        "        self",
-        "    }",
-        "",
-        `    /// Add filters of which all must match; one branch may itself be a group.`,
-        "    #[must_use]",
-        ...filterListSignature("filter_and", entity),
-        `        self.filters.push(${entity}Filter::Group {`,
-        "            kind: FilterKind::And,",
-        "            filters: filters.into_iter().map(Into::into).collect(),",
-        "        });",
-        "        self",
-        "    }",
-        "",
-        `    /// Add an ordering clause, built by a \`${entity}OrderField\` helper.`,
-        "    #[must_use]",
-        `    pub fn order(mut self, order: ${order}) -> Self {`,
-        "        self.order.push(order);",
-        "        self",
-        "    }",
-        "",
-        "    /// Keep at most `limit` rows.",
-        "    #[must_use]",
-        "    pub fn limit(mut self, limit: u64) -> Self {",
-        "        self.limit = Some(limit);",
-        "        self",
-        "    }",
-        "",
-        "    /// Skip `offset` leading rows.",
-        "    #[must_use]",
-        "    pub fn offset(mut self, offset: u64) -> Self {",
-        "        self.offset = Some(offset);",
-        "        self",
-        "    }",
-        "",
-        "    /// The statement this query runs: its SQL and the typed parameters it binds.",
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Build`] when the query does not form a valid statement.",
-        `    pub fn as_sql(&self) -> Result<PlannedQuery, ReadError> {`,
-        "        let read = self.clone().into_read_options()?;",
-        `        read.plan(${JSON.stringify(table)}, None)`,
-        "    }",
-        "",
-        "    /// Run this query, decoding every row into the entity's selected shape.",
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError`] when the statement cannot be built, run, or decoded.",
-        ...querySignature(entity),
-        "        let read = self.into_read_options()?;",
-        `        let query = read.plan(${JSON.stringify(table)}, None)?;`,
-        "        let rows = db.query(&query.sql, &query.params).await?;",
-        "        decode_rows(rows)",
-        "    }",
-        "",
-        "    /// The source-independent read the crate's planner takes; not part of the public surface.",
-        "    ///",
-        "    /// # Errors",
-        "    ///",
-        "    /// Returns [`ReadError::Encode`] when a filter value has no JSON form.",
-        "    pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {",
-        "        let mut filters = Vec::new();",
-        "        for filter in self.filters {",
-        "            filters.extend(filter.into_typed_filters()?);",
-        "        }",
-        "        Ok(ReadOptions {",
-        "            columns: self",
-        "                .select",
-        "                .0",
-        "                .into_iter()",
-        "                .map(|field| field.select())",
-        "                .collect(),",
-        "            filters,",
-        "            sort: self",
-        "                .order",
-        "                .into_iter()",
-        "                .map(|order| order.into_sort())",
-        "                .collect(),",
-        "            limit: self.limit,",
-        "            offset: self.offset,",
-        "        })",
+        "        Ok(LoweredRead(ReadOptions {",
+        "            columns: select.0.into_iter().map(|field| field.select()).collect(),",
+        "            filters: typed,",
+        "            sort: order.into_iter().map(|clause| clause.into_sort()).collect(),",
+        "            limit,",
+        "            offset,",
+        "        }))",
         "    }",
         "}",
     ];
 }
 
-/** Render one entity's query builder: its typed fields, the query type, and the read it plans. */
+/** Render one entity's query module: its typed fields, and its query over the shared builder. */
 export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const entity = table.interfaceName;
     const lines: string[] = [HEADER, ""];
     lines.push(
         ...useList(
             "crate::db",
-            ["FilterKind", "PlannedQuery", "ReadError", "ReadOptions", "SqlExecutor", "SqlType", "TypedFilter", "decode_rows", "flat_filter"].sort(),
+            ["EntityQuery", "FilterKind", "LoweredRead", "ReadEntity", "ReadError", "ReadOptions", "SqlType", "TypedFilter", "flat_filter"].sort(),
         ),
     );
     const filters = filterFields(table, spec);
@@ -870,8 +745,9 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     }
     builderImports.sort();
     lines.push(`use datagrid_query::{${builderImports.join(", ")}};`);
-    // Every module carries an ordering clause, so every module writes one as a tuple.
+    // Every module writes one ordering clause and implements the read trait for its model type.
     const modelImports = new Set([
+        `use ${rustModelItemPath(table.importSpecifier, entity)};`,
         `use ${selectTypePath(table)};`,
         ...filters.flatMap((field) => field.imports),
     ]);
@@ -896,7 +772,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push("");
     lines.push(...renderOrderStruct(entity));
     lines.push("");
-    lines.push(...renderQueryBuilder(entity, table.name));
+    lines.push(...renderReadEntity(entity, table.name));
     return lines.join("\n") + "\n";
 }
 

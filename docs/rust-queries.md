@@ -11,22 +11,32 @@ backend, though each lowers it to its own SQL.
 ## The generated module
 
 ```rust
-impl WidgetQuery {
-    pub fn as_sql(&self) -> Result<PlannedQuery, ReadError> { … }
+pub type WidgetQuery = EntityQuery<Widget>;
 
-    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<WidgetSelect>, ReadError> { … }
+impl ReadEntity for Widget {
+    type Select = WidgetSelect;
+    type Selection = WidgetSelection;
+    type Filter = WidgetFilter;
+    type Order = WidgetOrder;
+
+    const TABLE: &'static str = "widget";
+
+    fn group(kind: FilterKind, filters: Vec<Self::Filter>) -> Self::Filter { … }
+
+    fn lower(…) -> Result<LoweredRead, ReadError> { … }
 }
 ```
 
 The read takes the entity's own query type, `WidgetQuery`, so its selection and
-ordering can only name `Widget`'s columns. The generic `ReadOptions` is not part
-of the generated surface; the query converts to it internally. A module declares
-types and builders, and these two methods are what it does with them: `query`
-runs the statement and decodes every row into the model's selected shape,
-`WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and `as_sql`
-reports the same statement as a plan — its SQL and typed parameters — without
-the database, to log, assert on, or bind elsewhere. `as_sql` borrows, so a read
-can be reported and then still run.
+ordering can only name `Widget`'s columns. The builder itself is written once, as
+`EntityQuery<E>` in `crates/infra/src/db/entity_query.rs`, and a module declares
+only what makes its entity different: the typed sets it is built from, the table
+it plans against, how its filters group, and how they lower. `query` runs the
+statement and decodes every row into the model's selected shape, `WidgetSelect`,
+from `crates/models` (`docs/rust-models.md`), and `as_sql` reports the same
+statement as a plan — its SQL and typed parameters — without the database, to
+log, assert on, or bind elsewhere. `as_sql` borrows, so a read can be reported
+and then still run.
 
 A field the read did not select stays `Partial::Unset`, so the caller can tell
 "not read" from "null".
@@ -271,14 +281,14 @@ pub enum WidgetTenantIdFilter {
 
 ## The query type
 
-Each generated module declares the entity's query type, whose fields are the
+Each entity's query type is `EntityQuery` over its model, whose fields are the
 entity's own typed sets:
 
 ```rust
-pub struct WidgetQuery {
-    pub select: WidgetSelection,
-    pub filters: Vec<WidgetFilter>,
-    pub order: Vec<WidgetOrder>,
+pub struct EntityQuery<E: ReadEntity> {
+    pub select: E::Selection,
+    pub filters: Vec<E::Filter>,
+    pub order: Vec<E::Order>,
     pub limit: Option<u64>,
     pub offset: Option<u64>,
 }
@@ -303,9 +313,10 @@ let query = WidgetQuery::with_select([WidgetSelectField::Id, WidgetSelectField::
 Every builder takes and returns `self`, and the last step is either `query`, which
 runs the read, or `as_sql`, which reports the plan it would run.
 
-`into_read_options` lowers it to the source-independent `ReadOptions` in
-`crates/infra/src/db/read_options.rs`. Both that method and the type are
-crate-internal; the fields are `datagrid_query` types:
+The entity's `ReadEntity::lower` converts the query to the source-independent
+`ReadOptions` in `crates/infra/src/db/read_options.rs`, which arrives as the
+opaque `LoweredRead` the planner consumes. Both are crate-internal; the fields
+are `datagrid_query` types:
 
 ```rust
 pub struct ReadOptions {

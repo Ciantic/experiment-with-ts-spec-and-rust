@@ -151,71 +151,43 @@ describe("fieldEnumName", () => {
 });
 
 describe("renderQueryModule", () => {
-    it("names the entity's own query type, not the generic read options", () => {
+    it("names the entity's own query type, and leaves the builder to the shared one", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub struct InvoiceQuery {");
-        expect(code).toContain("pub select: InvoiceSelection,");
-        expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
-        expect(code).toContain("pub order: Vec<InvoiceOrder>,");
-        expect(code).toContain("pub fn as_sql(&self) -> Result<PlannedQuery, ReadError> {");
-        expect(code).toContain(
-            "    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<InvoiceSelect>, ReadError> {",
-        );
+        expect(code).toContain("pub type InvoiceQuery = EntityQuery<Invoice>;");
+        expect(code).toContain("impl ReadEntity for Invoice {");
+        expect(code).toContain("    type Selection = InvoiceSelection;");
+        expect(code).toContain("    type Filter = InvoiceFilter;");
+        expect(code).toContain("    type Order = InvoiceOrder;");
+        // The fluent builder is written once in infra, so no module emits one.
+        expect(code).not.toContain("pub fn filter(");
+        expect(code).not.toContain("pub fn as_sql(");
+        expect(code).not.toContain("pub async fn query(");
     });
 
-    it("converts the typed selection and ordering to the builder's own types", () => {
+    it("lowers the typed selection, filters, and ordering to the builder's own types", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub(crate) fn into_read_options(self) -> Result<ReadOptions, ReadError> {");
-        expect(code).toContain(".map(|field| field.select())");
-        expect(code).toContain("filters.extend(filter.into_typed_filters()?);");
-        expect(code).toContain(".map(|order| order.into_sort())");
-        expect(code).toContain('read.plan("invoice", None)');
+        expect(code).toContain("    fn lower(");
+        expect(code).toContain('    const TABLE: &\'static str = "invoice";');
+        expect(code).toContain("        Ok(LoweredRead(ReadOptions {");
+        expect(code).toContain("columns: select.0.into_iter().map(|field| field.select()).collect(),");
+        expect(code).toContain("typed.extend(filter.into_typed_filters()?);");
+        expect(code).toContain("sort: order.into_iter().map(|clause| clause.into_sort()).collect(),");
     });
 
-    it("builds the selection, filters, and ordering with a small fluent API", () => {
+    it("builds a group through the entity's own filter, so the kind reaches the wire", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub fn with_select(fields: impl IntoIterator<Item = InvoiceSelectField>) -> Self");
-        expect(code).toContain("pub fn filter(mut self, filter: impl Into<InvoiceFilter>) -> Self");
-        expect(code).toContain("pub fn filter_or(");
-        expect(code).toContain("pub fn filter_and(");
-        expect(code).toContain("pub fn order(mut self, order: InvoiceOrder) -> Self");
+        expect(code).toContain("fn group(kind: FilterKind, filters: Vec<Self::Filter>) -> Self::Filter {");
+        expect(code).toContain("InvoiceFilter::Group { kind, filters }");
     });
 
-    it("plans the read from the builder, so a caller can log the plan before running it", () => {
+    it("gives a selection a FromIterator, so with_select can build it", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("        let read = self.clone().into_read_options()?;");
-        expect(code).toContain('        read.plan("invoice", None)');
-    });
-
-    it("runs the read from the builder, binding its own parameters", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("        let read = self.into_read_options()?;");
-        expect(code).toContain('        let query = read.plan("invoice", None)?;');
-        expect(code).toContain("        let rows = db.query(&query.sql, &query.params).await?;");
-        expect(code).toContain("        decode_rows(rows)");
-    });
-
-    it("wraps a query signature the entity's selected type makes too long", () => {
-        const long = table("tenant_shared_permission", "TenantSharedPermission", [column("id", { primaryKey: true })]);
-        const code = renderQueryModule(long, spec);
-
-        expect(code).toContain(
-            "    pub async fn query(\n        self,\n        db: &impl SqlExecutor,\n    ) -> Result<Vec<TenantSharedPermissionSelect>, ReadError> {",
-        );
-        expect(code).toContain('        let query = read.plan("tenant_shared_permission", None)?;');
-    });
-
-    it("accepts the same column twice, since the list is combined with and", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("self.filters.push(filter.into());");
-        expect(code).toContain("The same column may be filtered twice.");
-        expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
+        expect(code).toContain("impl FromIterator<InvoiceSelectField> for InvoiceSelection {");
+        expect(code).toContain("fn from_iter<I: IntoIterator<Item = InvoiceSelectField>>(fields: I) -> Self {");
     });
 
     it("writes each comparison as a flat `column__operator` key, as the TypeScript read does", () => {
@@ -240,8 +212,8 @@ describe("renderQueryModule", () => {
 
         expect(code).toContain("    Group {");
         expect(code).toContain("kind: FilterKind,");
-        expect(code).toContain("kind: FilterKind::Or,");
-        expect(code).toContain("kind: FilterKind::And,");
+        // The blocks the builder writes read the same kind enum, so one group spelling serves both.
+        expect(code).toContain("InvoiceFilter::Group { kind, filters }");
     });
 
     it("writes an ordering clause as a `[column, direction]` tuple", () => {
@@ -317,18 +289,6 @@ describe("renderQueryModule", () => {
         expect(code).toContain('    #[serde(rename = "tenantId")]\n    TenantId,');
     });
 
-    it("serializes the query as camelCase JSON, rejecting an unknown key", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain(
-            "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
-        );
-        expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceQuery {');
-        // The TypeScript read always sends a selection, so a read always writes one, even empty.
-        expect(code).toContain("#[serde(default)]\n    pub select: InvoiceSelection,");
-        expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]\n    pub limit: Option<u64>,');
-    });
-
     it("names an ordering clause's column through its field set, and its direction through the planner's own", () => {
         const code = renderQueryModule(invoice, spec);
 
@@ -375,12 +335,6 @@ describe("renderQueryModule", () => {
         expect(code).toContain("flat_filter::null_test(key, value)?;");
     });
 
-    it("wraps a long with_select signature instead of overflowing the line", () => {
-        const long = table("tenant_shared_permission", "TenantSharedPermission", [column("id", { primaryKey: true })]);
-        const code = renderQueryModule(long, spec);
-
-        expect(code).toContain("pub fn with_select(\n        fields: impl IntoIterator<Item = TenantSharedPermissionSelectField>,\n    ) -> Self {");
-    });
 });
 
 describe("generateQueryModules", () => {

@@ -1,6 +1,7 @@
 //! The infra crate's database layer.
 
 mod bind_value;
+mod entity_query;
 mod executor;
 pub(crate) mod flat_filter;
 mod postgres;
@@ -9,6 +10,7 @@ mod sql_type;
 
 pub mod queries;
 
+pub use entity_query::{EntityQuery, LoweredRead, ReadEntity};
 pub use executor::{ReadError, Row, SqlExecutor, decode_rows};
 pub use flat_filter::FilterKind;
 pub use read_options::{Param, PlannedQuery};
