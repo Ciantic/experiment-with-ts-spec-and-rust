@@ -5,6 +5,7 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
+use macro_helpers::flat_query_filters;
 use models::domain::invoicing_service::seller::Seller;
 use models::domain::invoicing_service::seller::SellerId;
 use models::domain::invoicing_service::seller::SellerSelect;
@@ -121,138 +122,10 @@ impl FromIterator<SellerSelectField> for SellerSelection {
     }
 }
 
-/// A comparison on `Seller.id`, limited to the operators `@queryFilter ops=eq` whitelists.
-///
-/// On the wire it is one flat entry, such as `{"id__eq": …}`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SellerIdFilter {
-    Eq(SellerId),
-}
-
-impl serde::Serialize for SellerIdFilter {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Eq(value) => flat_filter::serialize("id__eq", value, serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SellerIdFilter {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::deserialize(deserializer, |key, value| match key {
-            "id__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?)),
-            other => Err(format!("unknown filter `{other}` on `Seller.id`")),
-        })
-    }
-}
-
-impl SellerIdFilter {
-    /// The typed filter the planner binds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
-        Ok(match self {
-            Self::Eq(value) => TypedFilter::one("id", SqlType::Uuid, FilterOperator::Eq, value)?,
-        })
-    }
-}
-
-/// A comparison on `Seller.tenantId`, limited to the operators `@queryFilter ops=eq` whitelists.
-///
-/// On the wire it is one flat entry, such as `{"tenantId__eq": …}`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum SellerTenantIdFilter {
-    Eq(TenantId),
-}
-
-impl serde::Serialize for SellerTenantIdFilter {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Eq(value) => flat_filter::serialize("tenantId__eq", value, serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SellerTenantIdFilter {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::deserialize(deserializer, |key, value| match key {
-            "tenantId__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?)),
-            other => Err(format!("unknown filter `{other}` on `Seller.tenantId`")),
-        })
-    }
-}
-
-impl SellerTenantIdFilter {
-    /// The typed filter the planner binds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
-        Ok(match self {
-            Self::Eq(value) => {
-                TypedFilter::one("tenantId", SqlType::Uuid, FilterOperator::Eq, value)?
-            }
-        })
-    }
-}
-
-/// A filter over `Seller`: a comparison on one of its columns, or a group of filters.
-/// A read's filters are combined with `and`, so a column may appear more than once.
-/// See docs/rust-queries.md.
-
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum SellerFilter {
-    /// A comparison on `id`.
-    Id(SellerIdFilter),
-    /// A comparison on `tenantId`.
-    TenantId(SellerTenantIdFilter),
-    /// A group of filters, combined the way `kind` says.
-    Group {
-        /// Whether every branch must match or any may.
-        kind: FilterKind,
-        /// The branches; each is a comparison or, in turn, a group.
-        filters: Vec<Self>,
-    },
-}
-
-impl From<SellerIdFilter> for SellerFilter {
-    fn from(filter: SellerIdFilter) -> Self {
-        Self::Id(filter)
-    }
-}
-
-impl From<SellerTenantIdFilter> for SellerFilter {
-    fn from(filter: SellerTenantIdFilter) -> Self {
-        Self::TenantId(filter)
-    }
-}
-
-impl SellerFilter {
-    /// The typed filters this names, in the order the builder binds them.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub(crate) fn into_typed_filters(self) -> Result<Vec<TypedFilter>, ReadError> {
-        match self {
-            Self::Id(filter) => Ok(vec![filter.into_typed_filter()?]),
-            Self::TenantId(filter) => Ok(vec![filter.into_typed_filter()?]),
-            Self::Group { kind, filters } => {
-                let mut typed = Vec::new();
-                for filter in filters {
-                    typed.extend(filter.into_typed_filters()?);
-                }
-                Ok(match typed.len() {
-                    0 => Vec::new(),
-                    1 => typed,
-                    _ => vec![TypedFilter::group(kind.combinator(), typed)],
-                })
-            }
-        }
+flat_query_filters! {
+    Seller {
+        id: SellerId, Uuid, [eq],
+        tenantId: TenantId, Uuid, [eq],
     }
 }
 

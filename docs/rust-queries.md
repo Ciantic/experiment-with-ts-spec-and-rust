@@ -31,12 +31,15 @@ The read takes the entity's own query type, `WidgetQuery`, so its selection and
 ordering can only name `Widget`'s columns. The builder itself is written once, as
 `EntityQuery<E>` in `crates/infra/src/db/entity_query.rs`, and a module declares
 only what makes its entity different: the typed sets it is built from, the table
-it plans against, how its filters group, and how they lower. `query` runs the
-statement and decodes every row into the model's selected shape, `WidgetSelect`,
-from `crates/models` (`docs/rust-models.md`), and `as_sql` reports the same
-statement as a plan — its SQL and typed parameters — without the database, to
-log, assert on, or bind elsewhere. `as_sql` borrows, so a read can be reported
-and then still run.
+it plans against, how its filters group, and how they lower. The per-column
+filter types and the entity's filter enum come from `flat_query_filters!`, whose
+definition lives in `crates/macro-helpers`, so a column states its name, value
+type, `SqlType`, and operators once and the macro writes every type over them.
+`query` runs the statement and decodes every row into the model's selected
+shape, `WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and
+`as_sql` reports the same statement as a plan — its SQL and typed parameters —
+without the database, to log, assert on, or bind elsewhere. `as_sql` borrows,
+so a read can be reported and then still run.
 
 A field the read did not select stays `Partial::Unset`, so the caller can tell
 "not read" from "null".
@@ -186,8 +189,10 @@ pub enum WidgetFilter {
 }
 ```
 
-Every column type converts into it (`impl From<WidgetTenantIdFilter> for
-WidgetFilter`), so `filter` takes whichever the caller has. The group is a
+`flat_query_filters!` writes it, its `From` impls, and its lowering from the
+same column table, so a new column reaches the enum by being listed once. Every
+column type converts into it (`impl From<WidgetTenantIdFilter> for WidgetFilter`),
+so `filter` takes whichever the caller has. The group is a
 struct variant rather than a second list of filters, so it travels on the wire as
 `{ "kind": "and" | "or", "filters": [...] }` and cannot be confused with a
 comparison. Its branches are the same enum, so a group nests to any depth and
@@ -271,13 +276,30 @@ WidgetIssueDateFilter::Between(from, to)      // "issueDate" BETWEEN $1 AND $2
 ```
 
 A column with no `ops=` offers `eq` alone, which is why a bare `@queryFilter`
-reads as an equality filter:
+reads as an equality filter. Each column is one line of the module's
+`flat_query_filters!` invocation:
 
 ```rust
-pub enum WidgetTenantIdFilter {
-    Eq(TenantId),
+flat_query_filters! {
+    Widget {
+        tenantId: TenantId, Uuid, [eq],
+        issueDate: chrono::DateTime<chrono::Utc>, Timestamptz, [gte, lte, between],
+    }
 }
 ```
+
+The macro writes `WidgetTenantIdFilter` with its single `Eq` variant,
+`WidgetIssueDateFilter` with `Gte`, `Lte`, and `Between`, and for each the flat
+`column__operator` wire form and the typed filter the planner binds. Its
+operators are the only place the wire spelling, the planner's spelling, and the
+payload each takes are decided together.
+
+The same invocation writes the entity's own `WidgetFilter`: one untagged variant
+per column, the `Group` variant a read nests, a `From` impl per column type so
+`filter` takes one directly, and `into_typed_filters`, which lowers a column to
+its one entry and a group to its `and` or `or` combinator. A group of one branch
+lowers to that branch and an empty group constrains nothing, so the tree the
+caller built is the tree the statement carries.
 
 ## The query type
 

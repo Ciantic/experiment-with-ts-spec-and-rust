@@ -5,6 +5,7 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
+use macro_helpers::flat_query_filters;
 use models::domain::invoicing_service::audit_log::AuditLog;
 use models::domain::invoicing_service::audit_log::AuditLogId;
 use models::domain::invoicing_service::audit_log::AuditLogSelect;
@@ -92,89 +93,9 @@ impl FromIterator<AuditLogSelectField> for AuditLogSelection {
     }
 }
 
-/// A comparison on `AuditLog.id`, limited to the operators `@queryFilter ops=eq` whitelists.
-///
-/// On the wire it is one flat entry, such as `{"id__eq": …}`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum AuditLogIdFilter {
-    Eq(AuditLogId),
-}
-
-impl serde::Serialize for AuditLogIdFilter {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Eq(value) => flat_filter::serialize("id__eq", value, serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for AuditLogIdFilter {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::deserialize(deserializer, |key, value| match key {
-            "id__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?)),
-            other => Err(format!("unknown filter `{other}` on `AuditLog.id`")),
-        })
-    }
-}
-
-impl AuditLogIdFilter {
-    /// The typed filter the planner binds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
-        Ok(match self {
-            Self::Eq(value) => TypedFilter::one("id", SqlType::I32, FilterOperator::Eq, value)?,
-        })
-    }
-}
-
-/// A filter over `AuditLog`: a comparison on one of its columns, or a group of filters.
-/// A read's filters are combined with `and`, so a column may appear more than once.
-/// See docs/rust-queries.md.
-
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum AuditLogFilter {
-    /// A comparison on `id`.
-    Id(AuditLogIdFilter),
-    /// A group of filters, combined the way `kind` says.
-    Group {
-        /// Whether every branch must match or any may.
-        kind: FilterKind,
-        /// The branches; each is a comparison or, in turn, a group.
-        filters: Vec<Self>,
-    },
-}
-
-impl From<AuditLogIdFilter> for AuditLogFilter {
-    fn from(filter: AuditLogIdFilter) -> Self {
-        Self::Id(filter)
-    }
-}
-
-impl AuditLogFilter {
-    /// The typed filters this names, in the order the builder binds them.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub(crate) fn into_typed_filters(self) -> Result<Vec<TypedFilter>, ReadError> {
-        match self {
-            Self::Id(filter) => Ok(vec![filter.into_typed_filter()?]),
-            Self::Group { kind, filters } => {
-                let mut typed = Vec::new();
-                for filter in filters {
-                    typed.extend(filter.into_typed_filters()?);
-                }
-                Ok(match typed.len() {
-                    0 => Vec::new(),
-                    1 => typed,
-                    _ => vec![TypedFilter::group(kind.combinator(), typed)],
-                })
-            }
-        }
+flat_query_filters! {
+    AuditLog {
+        id: AuditLogId, I32, [eq],
     }
 }
 

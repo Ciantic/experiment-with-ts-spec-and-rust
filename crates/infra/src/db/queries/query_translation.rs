@@ -5,6 +5,7 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
+use macro_helpers::flat_query_filters;
 use models::domain::invoicing_service::translation::Translation;
 use models::domain::invoicing_service::translation::TranslationSelect;
 use serde::ser::{SerializeMap, SerializeTuple};
@@ -91,136 +92,10 @@ impl FromIterator<TranslationSelectField> for TranslationSelection {
     }
 }
 
-/// A comparison on `Translation.lang`, limited to the operators `@queryFilter ops=eq` whitelists.
-///
-/// On the wire it is one flat entry, such as `{"lang__eq": …}`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum TranslationLangFilter {
-    Eq(String),
-}
-
-impl serde::Serialize for TranslationLangFilter {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Eq(value) => flat_filter::serialize("lang__eq", value, serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TranslationLangFilter {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::deserialize(deserializer, |key, value| match key {
-            "lang__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?)),
-            other => Err(format!("unknown filter `{other}` on `Translation.lang`")),
-        })
-    }
-}
-
-impl TranslationLangFilter {
-    /// The typed filter the planner binds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
-        Ok(match self {
-            Self::Eq(value) => TypedFilter::one("lang", SqlType::Text, FilterOperator::Eq, value)?,
-        })
-    }
-}
-
-/// A comparison on `Translation.key`, limited to the operators `@queryFilter ops=eq` whitelists.
-///
-/// On the wire it is one flat entry, such as `{"key__eq": …}`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum TranslationKeyFilter {
-    Eq(String),
-}
-
-impl serde::Serialize for TranslationKeyFilter {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Eq(value) => flat_filter::serialize("key__eq", value, serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TranslationKeyFilter {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::deserialize(deserializer, |key, value| match key {
-            "key__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?)),
-            other => Err(format!("unknown filter `{other}` on `Translation.key`")),
-        })
-    }
-}
-
-impl TranslationKeyFilter {
-    /// The typed filter the planner binds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
-        Ok(match self {
-            Self::Eq(value) => TypedFilter::one("key", SqlType::Text, FilterOperator::Eq, value)?,
-        })
-    }
-}
-
-/// A filter over `Translation`: a comparison on one of its columns, or a group of filters.
-/// A read's filters are combined with `and`, so a column may appear more than once.
-/// See docs/rust-queries.md.
-
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum TranslationFilter {
-    /// A comparison on `lang`.
-    Lang(TranslationLangFilter),
-    /// A comparison on `key`.
-    Key(TranslationKeyFilter),
-    /// A group of filters, combined the way `kind` says.
-    Group {
-        /// Whether every branch must match or any may.
-        kind: FilterKind,
-        /// The branches; each is a comparison or, in turn, a group.
-        filters: Vec<Self>,
-    },
-}
-
-impl From<TranslationLangFilter> for TranslationFilter {
-    fn from(filter: TranslationLangFilter) -> Self {
-        Self::Lang(filter)
-    }
-}
-
-impl From<TranslationKeyFilter> for TranslationFilter {
-    fn from(filter: TranslationKeyFilter) -> Self {
-        Self::Key(filter)
-    }
-}
-
-impl TranslationFilter {
-    /// The typed filters this names, in the order the builder binds them.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub(crate) fn into_typed_filters(self) -> Result<Vec<TypedFilter>, ReadError> {
-        match self {
-            Self::Lang(filter) => Ok(vec![filter.into_typed_filter()?]),
-            Self::Key(filter) => Ok(vec![filter.into_typed_filter()?]),
-            Self::Group { kind, filters } => {
-                let mut typed = Vec::new();
-                for filter in filters {
-                    typed.extend(filter.into_typed_filters()?);
-                }
-                Ok(match typed.len() {
-                    0 => Vec::new(),
-                    1 => typed,
-                    _ => vec![TypedFilter::group(kind.combinator(), typed)],
-                })
-            }
-        }
+flat_query_filters! {
+    Translation {
+        lang: String, Text, [eq],
+        key: String, Text, [eq],
     }
 }
 

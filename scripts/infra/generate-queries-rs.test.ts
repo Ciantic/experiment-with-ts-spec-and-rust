@@ -190,30 +190,23 @@ describe("renderQueryModule", () => {
         expect(code).toContain("fn from_iter<I: IntoIterator<Item = InvoiceSelectField>>(fields: I) -> Self {");
     });
 
-    it("writes each comparison as a flat `column__operator` key, as the TypeScript read does", () => {
+    it("hands each column's wire shape and the entity's filter to the shared macro", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain('flat_filter::serialize("tenantId__eq", value, serializer)');
-        expect(code).toContain('"tenantId__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?))');
-        // The umbrella enum is untagged, so a column variant is the entry itself.
-        expect(code).toContain("#[serde(untagged)]");
-        expect(code).not.toContain('#[serde(rename_all = "camelCase")]');
+        // The macro writes each column's enum, the umbrella enum over them, and every lowering.
+        expect(code).toContain("flat_query_filters! {\n    Invoice {");
+        expect(code).toContain("use macro_helpers::flat_query_filters;");
+        expect(code).not.toContain("flat_filter::serialize(");
+        expect(code).not.toContain("pub enum InvoiceFilter {");
+        expect(code).not.toContain("impl From<InvoiceTenantIdFilter> for InvoiceFilter {");
     });
 
-    it("writes a range as the two-element array its operator takes", () => {
+    it("lets the builder group through the entity's own filter", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain('flat_filter::serialize("issueDate__between", &[lower, upper], serializer)');
-        expect(code).toContain("let (lower, upper) = flat_filter::payload(key, value)?;");
-    });
-
-    it("writes a group with the kind discriminator the TypeScript read sends", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("    Group {");
-        expect(code).toContain("kind: FilterKind,");
-        // The blocks the builder writes read the same kind enum, so one group spelling serves both.
+        // The builder writes the group, and the macro writes the variant it names.
         expect(code).toContain("InvoiceFilter::Group { kind, filters }");
+        expect(code).toContain("fn group(kind: FilterKind, filters: Vec<Self::Filter>) -> Self::Filter {");
     });
 
     it("writes an ordering clause as a `[column, direction]` tuple", () => {
@@ -235,50 +228,17 @@ describe("renderQueryModule", () => {
         expect(code).toContain("flat_filter::selection(deserializer, InvoiceSelectField::from_column).map(Self)");
     });
 
-    it("gives each filterable column an enum of exactly its ops", () => {
+    it("gives the macro each column's value type, SQL type, and ops", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub enum InvoiceTenantIdFilter {");
-        expect(code).toContain("    Eq(TenantId),");
-        expect(code).not.toContain("pub tenant_id: Option<");
-    });
-
-    it("names each column's type when it lowers to the planner", () => {
-        const code = renderQueryModule(invoice, spec);
-
+        expect(code).toContain("tenantId: TenantId, Uuid, [eq],");
+        expect(code).toContain("id: InvoiceId, Uuid, [eq],");
+        expect(code).toContain("deletedAt: chrono::DateTime<chrono::Utc>, Timestamptz, [eq],");
         expect(code).toContain(
-            'TypedFilter::one("tenantId", SqlType::Uuid, FilterOperator::Eq, value)?',
+            "issueDate: chrono::DateTime<chrono::Utc>, Timestamptz, [gte, lte, between],",
         );
-        expect(code).toContain(
-            'TypedFilter::one("deletedAt", SqlType::Timestamptz, FilterOperator::Eq, value)?',
-        );
-    });
-
-    it("lets a where column carry exactly its whitelisted operator", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("pub enum InvoiceIssueDateFilter {");
-        expect(code).toContain("Gte(chrono::DateTime<chrono::Utc>),");
-        expect(code).toContain("Lte(chrono::DateTime<chrono::Utc>),");
-        expect(code).not.toContain("Gt(chrono::DateTime<chrono::Utc>),");
-        expect(code).toContain("FilterOperator::Gte,");
-    });
-
-    it("converts every column type into the umbrella filter, so filter() takes it directly", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("impl From<InvoiceTenantIdFilter> for InvoiceFilter {");
-        expect(code).toContain("Self::TenantId(filter)");
-        expect(code).toContain("impl From<InvoiceIssueDateFilter> for InvoiceFilter {");
-    });
-
-    it("groups a branch's filters by its own kind, and leaves one branch unparenthesised", () => {
-        const code = renderQueryModule(invoice, spec);
-
-        expect(code).toContain("Self::Group { kind, filters } => {");
-        expect(code).toContain("_ => vec![TypedFilter::group(kind.combinator(), typed)],");
-        expect(code).toContain("1 => typed,");
-        expect(code).toContain("0 => Vec::new(),");
+        // Only the ops the tag whitelists, so a column never offers a comparison the spec forbids.
+        expect(code).not.toContain("issueDate: chrono::DateTime<chrono::Utc>, Timestamptz, [gte, gt,");
     });
 
     it("serializes each field enum as its column name", () => {
@@ -327,14 +287,13 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub const ALL: &'static [Self] = &[];");
     });
 
-    it("writes a null test as a flat entry holding `true`, and rejects any other payload", () => {
+    it("lets a nullable column offer a null test, which binds nothing", () => {
         const code = renderQueryModule(nullable, spec);
+        const invocation = code.slice(code.indexOf("flat_query_filters!"), code.indexOf("/// A filter over"));
 
-        expect(code).toContain('Self::IsNull => flat_filter::serialize("consumedAt__isNull", &true, serializer),');
-        expect(code).toContain('"consumedAt__isNotNull" => {');
-        expect(code).toContain("flat_filter::null_test(key, value)?;");
+        expect(invocation).toContain("consumedAt:");
+        expect(invocation).toContain("[isNull, isNotNull],");
     });
-
 });
 
 describe("generateQueryModules", () => {

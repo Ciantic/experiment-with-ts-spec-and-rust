@@ -5,6 +5,7 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
+use macro_helpers::flat_query_filters;
 use models::domain::user_service::tenant::Tenant;
 use models::domain::user_service::tenant::TenantId;
 use models::domain::user_service::tenant::TenantSelect;
@@ -100,89 +101,9 @@ impl FromIterator<TenantSelectField> for TenantSelection {
     }
 }
 
-/// A comparison on `Tenant.id`, limited to the operators `@queryFilter ops=eq` whitelists.
-///
-/// On the wire it is one flat entry, such as `{"id__eq": …}`.
-#[derive(Clone, Debug, PartialEq)]
-pub enum TenantIdFilter {
-    Eq(TenantId),
-}
-
-impl serde::Serialize for TenantIdFilter {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Eq(value) => flat_filter::serialize("id__eq", value, serializer),
-        }
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TenantIdFilter {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::deserialize(deserializer, |key, value| match key {
-            "id__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?)),
-            other => Err(format!("unknown filter `{other}` on `Tenant.id`")),
-        })
-    }
-}
-
-impl TenantIdFilter {
-    /// The typed filter the planner binds.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when the value has no JSON form.
-    pub(crate) fn into_typed_filter(self) -> Result<TypedFilter, ReadError> {
-        Ok(match self {
-            Self::Eq(value) => TypedFilter::one("id", SqlType::Uuid, FilterOperator::Eq, value)?,
-        })
-    }
-}
-
-/// A filter over `Tenant`: a comparison on one of its columns, or a group of filters.
-/// A read's filters are combined with `and`, so a column may appear more than once.
-/// See docs/rust-queries.md.
-
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
-#[serde(untagged)]
-pub enum TenantFilter {
-    /// A comparison on `id`.
-    Id(TenantIdFilter),
-    /// A group of filters, combined the way `kind` says.
-    Group {
-        /// Whether every branch must match or any may.
-        kind: FilterKind,
-        /// The branches; each is a comparison or, in turn, a group.
-        filters: Vec<Self>,
-    },
-}
-
-impl From<TenantIdFilter> for TenantFilter {
-    fn from(filter: TenantIdFilter) -> Self {
-        Self::Id(filter)
-    }
-}
-
-impl TenantFilter {
-    /// The typed filters this names, in the order the builder binds them.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ReadError::Encode`] when a value has no JSON form.
-    pub(crate) fn into_typed_filters(self) -> Result<Vec<TypedFilter>, ReadError> {
-        match self {
-            Self::Id(filter) => Ok(vec![filter.into_typed_filter()?]),
-            Self::Group { kind, filters } => {
-                let mut typed = Vec::new();
-                for filter in filters {
-                    typed.extend(filter.into_typed_filters()?);
-                }
-                Ok(match typed.len() {
-                    0 => Vec::new(),
-                    1 => typed,
-                    _ => vec![TypedFilter::group(kind.combinator(), typed)],
-                })
-            }
-        }
+flat_query_filters! {
+    Tenant {
+        id: TenantId, Uuid, [eq],
     }
 }
 
