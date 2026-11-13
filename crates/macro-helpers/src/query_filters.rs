@@ -1,8 +1,10 @@
-//! The expansion behind `flat_query_filters!`: one column's enum, wire form, and lowering.
+//! The expansion behind `query_filters!`: one column's enum, wire form, and lowering.
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{format_ident, quote};
+
+use crate::naming::{pascal_name, variant};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::{Ident, Token, Type, braced, bracketed};
@@ -103,7 +105,7 @@ impl Parse for FlatFilters {
     }
 }
 
-/// Expand one `flat_query_filters!` invocation: a filter enum per column, with its wire form and
+/// Expand one `query_filters!` invocation: a filter enum per column, with its wire form and
 /// the typed filter the planner binds.
 pub(crate) fn expand(input: TokenStream) -> TokenStream {
     let spec = match syn::parse::<FlatFilters>(input) {
@@ -131,7 +133,7 @@ fn expand_entity(entity: &Ident, columns: &[Column]) -> TokenStream2 {
     let mut into_impls = Vec::new();
     let mut lowering_arms = Vec::new();
     for column in columns {
-        let variant = column_variant(&column.name.to_string());
+        let variant = variant(&column.name.to_string());
         let column_filter = format_ident!(
             "{}{}Filter",
             entity_name,
@@ -369,54 +371,6 @@ fn operator(op: &Ident) -> syn::Result<&'static Operator> {
                 format!("`{name}` is not an operator a filter column may offer"),
             )
         })
-}
-
-/// The variant a column takes in its entity's filter enum, suffixed when it would name `Self`.
-fn column_variant(name: &str) -> Ident {
-    let variant = pascal_name(name);
-    let suffix = if variant == "Self" { "_" } else { "" };
-    format_ident!("{variant}{suffix}")
-}
-
-/// The identifier a wire spelling takes, e.g. `issueDate` -> `IssueDate`, `ilike` -> `Ilike`.
-fn pascal_name(name: &str) -> String {
-    let mut words: Vec<String> = Vec::new();
-    let mut word = String::new();
-    let characters: Vec<char> = name.chars().collect();
-    for (index, character) in characters.iter().enumerate() {
-        if !character.is_ascii_alphanumeric() {
-            if !word.is_empty() {
-                words.push(std::mem::take(&mut word));
-            }
-            continue;
-        }
-        if character.is_ascii_uppercase() && index > 0 {
-            let previous = characters[index - 1];
-            if (previous.is_ascii_lowercase() || previous.is_ascii_digit()) && !word.is_empty() {
-                words.push(std::mem::take(&mut word));
-            }
-        }
-        word.push(*character);
-    }
-    if !word.is_empty() {
-        words.push(word);
-    }
-    if words.is_empty() {
-        return "Unknown".to_owned();
-    }
-    words
-        .iter()
-        .map(|word| {
-            let mut characters = word.chars();
-            match characters.next() {
-                Some(first) => {
-                    first.to_ascii_uppercase().to_string()
-                        + &characters.as_str().to_ascii_lowercase()
-                }
-                None => String::new(),
-            }
-        })
-        .collect()
 }
 
 #[cfg(test)]

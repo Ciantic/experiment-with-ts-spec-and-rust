@@ -137,157 +137,42 @@ export function orderFields(table: Table): string[] {
     return table.columns.filter((column) => column.queryOrder !== undefined).map((column) => column.name);
 }
 
-/** The enum name of one field set, e.g. `Invoice` + `Select` -> `InvoiceSelectField`. */
-export function fieldEnumName(entity: string, kind: "Select" | "Order"): string {
-    return `${entity}${kind}Field`;
+/** The filter type of one column, e.g. `Invoice` + `issueDate` -> `InvoiceIssueDateFilter`. */
+export function filterTypeName(entity: string, field: string): string {
+    return `${entity}${variantIdentifier(field)}Filter`;
 }
 
-/** The variant for a field, e.g. `tenantId` -> `TenantId`. */
-function fieldVariant(field: string): string {
-    return variantIdentifier(field);
-}
-
-/** A field of an enum, with the Postgres type it binds as when it is a filter. */
-export interface FieldInfo {
-    name: string;
-    sqlType?: string;
-}
-
-/** Render an enum of one entity's fields: the columns it names, plus the helpers the caller builds with. */
-function renderFieldEnum(entity: string, kind: "Select" | "Order", fields: FieldInfo[], helpers: string[]): string[] {
-    const name = fieldEnumName(entity, kind);
-    const lines: string[] = fields.length === 0 ? [`pub enum ${name} {}`] : [`pub enum ${name} {`];
-    for (const field of fields) {
-        lines.push(`    #[serde(rename = ${JSON.stringify(field.name)})]`);
-        lines.push(`    ${fieldVariant(field.name)},`);
-    }
-    if (fields.length > 0) {
-        lines.push("}");
-    }
-    lines.push("");
-    lines.push(`impl ${name} {`);
-    if (fields.length === 0) {
-        lines.push("    /// Every field; empty because the entity declares none.");
-        lines.push("    pub const ALL: &'static [Self] = &[];");
-        lines.push("");
-        lines.push("    /// The column this field names.");
-        lines.push("    #[must_use]");
-        lines.push("    pub const fn as_str(self) -> &'static str {");
-        lines.push("        match self {}");
-        lines.push("    }");
-    } else {
-        lines.push("    /// Every field, in declaration order.");
-        lines.push("    #[rustfmt::skip]");
-        lines.push("    pub const ALL: &'static [Self] = &[");
-        for (const field of fields) {
-            lines.push(`        Self::${fieldVariant(field.name)},`);
+/** A comment over a macro call, naming the types it writes; filled to the line width. */
+function writesComment(types: string[]): string[] {
+    const names = types.map((name) => `\`${name}\``);
+    // One name stands alone, two read as "A and B", and three or more take the Oxford comma.
+    const list =
+        names.length === 1
+            ? names[0]
+            : names.length === 2
+              ? names.join(" and ")
+              : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`;
+    const text = `Writes ${list}.`;
+    const lines: string[] = [];
+    let line = "//";
+    for (const word of text.split(" ")) {
+        if (line !== "//" && line.length + 1 + word.length > MAX_LINE_WIDTH) {
+            lines.push(line);
+            line = "//";
         }
-        lines.push("    ];");
-        lines.push("");
-        lines.push("    /// The column this field names.");
-        lines.push("    #[must_use]");
-        lines.push("    pub const fn as_str(self) -> &'static str {");
-        lines.push("        match self {");
-        for (const field of fields) {
-            lines.push(`            Self::${fieldVariant(field.name)} => ${JSON.stringify(field.name)},`);
-        }
-        lines.push("        }");
-        lines.push("    }");
+        line = line === "//" ? `// ${word}` : `${line} ${word}`;
     }
-    if (helpers.length > 0) {
-        lines.push("");
-        for (const helper of helpers) {
-            lines.push(helper.length === 0 ? helper : `    ${helper}`);
-        }
-    }
-    lines.push("}");
-    lines.push("");
-    lines.push(`impl std::fmt::Display for ${name} {`);
-    lines.push("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {");
-    lines.push("        f.write_str(self.as_str())");
-    lines.push("    }");
-    lines.push("}");
+    lines.push(line);
     return lines;
 }
 
-/** The derive line above a field enum. */
-function fieldEnumDerive(): string[] {
-    return [
-        "#[derive(",
-        "    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,",
-        ")]",
-    ];
-}
-
-/** The `select` helpers of a selectable field: the planner's entry, and the wire name's lookup. */
-function selectHelper(): string[] {
-    return [
-        "/// The select-list entry for this column.",
-        "#[must_use]",
-        "pub fn select(self) -> SelectColumn {",
-        "    SelectColumn::Name(self.as_str().to_owned())",
-        "}",
-        "",
-        "/// The field a wire column names; `None` when the entity has no such column.",
-        "#[must_use]",
-        "pub fn from_column(column: &str) -> Option<Self> {",
-        "    Self::ALL",
-        "        .iter()",
-        "        .copied()",
-        "        .find(|field| field.as_str() == column)",
-        "}",
-    ];
-}
-
-/** The `selection` call as rustfmt writes it: one line while it fits, else the `map` on its own line. */
-function selectionCall(field: string): string[] {
-    const oneLine = `        flat_filter::selection(deserializer, ${field}::from_column).map(Self)`;
-    return oneLine.length <= MAX_LINE_WIDTH
-        ? [oneLine]
-        : [
-              `        flat_filter::selection(deserializer, ${field}::from_column)`,
-              "            .map(Self)",
-          ];
-}
-
-/** Render the selection a read carries: on the wire, an object naming each selected column. */
-function renderSelectStruct(entity: string): string[] {
-    const select = `${entity}Selection`;
-    const field = `${entity}SelectField`;
-    return [
-        `/// The columns a \`${entity}\` read selects; empty selects every one.`,
-        "///",
-        "/// On the wire it is an object naming each column, as the TypeScript read sends it.",
-        "#[derive(Clone, Debug, Default, PartialEq)]",
-        `pub struct ${select}(pub Vec<${field}>);`,
-        "",
-        `impl serde::Serialize for ${select} {`,
-        "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {",
-        "        let mut map = serializer.serialize_map(Some(self.0.len()))?;",
-        "        for field in &self.0 {",
-        "            map.serialize_entry(field.as_str(), &true)?;",
-        "        }",
-        "        map.end()",
-        "    }",
-        "}",
-        "",
-        `impl<'de> serde::Deserialize<'de> for ${select} {`,
-        "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {",
-        ...selectionCall(field),
-        "    }",
-        "}",
-        "",
-        `impl FromIterator<${field}> for ${select} {`,
-        `    fn from_iter<I: IntoIterator<Item = ${field}>>(fields: I) -> Self {`,
-        "        Self(fields.into_iter().collect())",
-        "    }",
-        "}",
-    ];
-}
-
-/** Render the entity's filters as one `flat_query_filters!` invocation, which writes them all. */
+/** Render the entity's filters as one `query_filters!` invocation, which writes them all. */
 export function renderFilters(entity: string, fields: FilterFieldInfo[]): string[] {
-    const lines = ["flat_query_filters! {", `    ${entity} {`];
+    const lines = [
+        ...writesComment([...fields.map((field) => filterTypeName(entity, field.name)), `${entity}Filter`]),
+        "query_filters! {",
+        `    ${entity} {`,
+    ];
     for (const field of fields) {
         lines.push(`        ${field.name}: ${field.valueType}, ${field.sqlType}, [${field.operators.join(", ")}],`);
     }
@@ -295,91 +180,29 @@ export function renderFilters(entity: string, fields: FilterFieldInfo[]): string
     return lines;
 }
 
-/** The ordering helpers of an orderable field. */
-function orderHelpers(entity: string): string[] {
-    const order = `${entity}Order`;
-    return [
-        "/// Ascending order on this column.",
-        "#[must_use]",
-        `pub fn asc(self) -> ${order} {`,
-        `    ${order} {`,
-        "        field: self,",
-        "        direction: SortDirection::Asc,",
-        "    }",
-        "}",
-        "",
-        "/// Descending order on this column.",
-        "#[must_use]",
-        `pub fn desc(self) -> ${order} {`,
-        `    ${order} {`,
-        "        field: self,",
-        "        direction: SortDirection::Desc,",
-        "    }",
-        "}",
-        "",
-        "/// The field a wire column names; `None` when the entity has no such column.",
-        "#[must_use]",
-        "pub fn from_column(column: &str) -> Option<Self> {",
-        "    Self::ALL",
-        "        .iter()",
-        "        .copied()",
-        "        .find(|field| field.as_str() == column)",
-        "}",
-    ];
+/** Render the entity's select fields as one `query_selection!` invocation, which writes them both. */
+export function renderSelection(entity: string, fields: string[]): string[] {
+    const types = [`${entity}SelectField`, `${entity}Selection`];
+    return [...writesComment(types), ...fieldInvocation("query_selection", entity, fields)];
 }
 
-/** The `sort` call as rustfmt writes it: one line while it fits, else after the `=`. */
-function sortCall(entity: string): string[] {
-    const oneLine = `        let (field, direction) = flat_filter::sort(deserializer, ${entity}OrderField::from_column)?;`;
-    return oneLine.length <= MAX_LINE_WIDTH
-        ? [oneLine]
-        : [
-              "        let (field, direction) =",
-              `            flat_filter::sort(deserializer, ${entity}OrderField::from_column)?;`,
-          ];
+/** Render the entity's order fields as one `query_order!` invocation, which writes them both. */
+export function renderOrder(entity: string, fields: string[]): string[] {
+    const types = [`${entity}OrderField`, `${entity}Order`];
+    return [...writesComment(types), ...fieldInvocation("query_order", entity, fields)];
 }
 
-/** Render the entity's typed ordering clause, so a read cannot be ordered by another table's column. */
-function renderOrderStruct(entity: string): string[] {
-    const order = `${entity}Order`;
-    return [
-        `/// One ordering clause of a \`${entity}\` read, built from \`${entity}OrderField\`.`,
-        "///",
-        `/// On the wire it is a \`["column", "asc" | "desc"]\` tuple, as the TypeScript read sends it.`,
-        "#[derive(Clone, Debug, PartialEq)]",
-        `pub struct ${order} {`,
-        `    field: ${entity}OrderField,`,
-        "    direction: SortDirection,",
-        "}",
-        "",
-        `impl serde::Serialize for ${order} {`,
-        "    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {",
-        "        let mut tuple = serializer.serialize_tuple(2)?;",
-        "        tuple.serialize_element(self.field.as_str())?;",
-        "        tuple.serialize_element(&self.direction)?;",
-        "        tuple.end()",
-        "    }",
-        "}",
-        "",
-        `impl<'de> serde::Deserialize<'de> for ${order} {`,
-        "    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {",
-        ...sortCall(entity),
-        "        Ok(Self { field, direction })",
-        "    }",
-        "}",
-        "",
-        `impl ${order} {`,
-        "    /// The builder's ordering clause.",
-        "    #[must_use]",
-        "    pub fn into_sort(self) -> Sort {",
-        "        Sort {",
-        "            column: self.field.as_str().to_owned(),",
-        "            direction: self.direction,",
-        "            nulls: None,",
-        "        }",
-        "    }",
-        "}",
-    ];
+/** One field-set invocation: the macro, the entity, and the columns it names in order. */
+function fieldInvocation(name: string, entity: string, fields: string[]): string[] {
+    if (fields.length === 0) {
+        return [`${name}! { ${entity} {} }`];
+    }
+    const lines = [`${name}! {`, `    ${entity} {`];
+    for (const field of fields) {
+        lines.push(`        ${field},`);
+    }
+    lines.push("    }", "}");
+    return lines;
 }
 
 /** A `use` statement as rustfmt lays it out: items filled to the line width, each line indented, trailing commas. */
@@ -464,8 +287,8 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     }
     builderImports.sort();
     lines.push(`use datagrid_query::{${builderImports.join(", ")}};`);
-    lines.push("use macro_helpers::flat_query_filters;");
-    // Every module writes one ordering clause and implements the read trait for its model type.
+    lines.push("use macro_helpers::{query_filters, query_order, query_selection};");
+    // Every module names its entity's model type, its selected shape, and the value types it filters by.
     const modelImports = new Set([
         `use ${rustModelItemPath(table.importSpecifier, entity)};`,
         `use ${selectTypePath(table)};`,
@@ -474,23 +297,12 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     for (const importLine of [...modelImports].sort()) {
         lines.push(importLine);
     }
-    lines.push("use serde::ser::{SerializeMap, SerializeTuple};");
     lines.push("");
-    lines.push(`/// A column of \`${entity}\` a read may select.`);
-    lines.push(...fieldEnumDerive());
-    const selectable: FieldInfo[] = selectableFields(table).map((name) => ({ name }));
-    lines.push(...renderFieldEnum(entity, "Select", selectable, selectHelper()));
-    lines.push("");
-    lines.push(...renderSelectStruct(entity));
+    lines.push(...renderSelection(entity, selectableFields(table)));
     lines.push("");
     lines.push(...renderFilters(entity, filters));
     lines.push("");
-    lines.push(`/// A column of \`${entity}\` a read may order by, from \`@queryOrderBy\`.`);
-    lines.push(...fieldEnumDerive());
-    const orderable: FieldInfo[] = orderFields(table).map((name) => ({ name }));
-    lines.push(...renderFieldEnum(entity, "Order", orderable, orderHelpers(entity)));
-    lines.push("");
-    lines.push(...renderOrderStruct(entity));
+    lines.push(...renderOrder(entity, orderFields(table)));
     lines.push("");
     lines.push(...renderReadEntity(entity, table.name));
     return lines.join("\n") + "\n";

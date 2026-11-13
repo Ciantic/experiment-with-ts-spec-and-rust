@@ -31,15 +31,15 @@ The read takes the entity's own query type, `WidgetQuery`, so its selection and
 ordering can only name `Widget`'s columns. The builder itself is written once, as
 `EntityQuery<E>` in `crates/infra/src/db/entity_query.rs`, and a module declares
 only what makes its entity different: the typed sets it is built from, the table
-it plans against, how its filters group, and how they lower. The per-column
-filter types and the entity's filter enum come from `flat_query_filters!`, whose
-definition lives in `crates/macro-helpers`, so a column states its name, value
-type, `SqlType`, and operators once and the macro writes every type over them.
-`query` runs the statement and decodes every row into the model's selected
-shape, `WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and
-`as_sql` reports the same statement as a plan — its SQL and typed parameters —
-without the database, to log, assert on, or bind elsewhere. `as_sql` borrows,
-so a read can be reported and then still run.
+it plans against, how its filters group, and how they lower. `query_selection!`,
+`query_filters!`, and `query_order!` write those types, from
+`crates/macro-helpers`, so a column is stated once per capability and the macro
+writes the enum, the wire form, and the lowering over it. `query` runs the
+statement and decodes every row into the model's selected shape, `WidgetSelect`,
+from `crates/models` (`docs/rust-models.md`), and `as_sql` reports the same
+statement as a plan — its SQL and typed parameters — without the database, to
+log, assert on, or bind elsewhere. `as_sql` borrows, so a read can be reported
+and then still run.
 
 A field the read did not select stays `Partial::Unset`, so the caller can tell
 "not read" from "null".
@@ -158,6 +158,33 @@ WidgetSelectField::Notes.select();                          // SelectColumn::Nam
 WidgetOrderField::CreatedAt.desc();                         // "createdAt" DESC
 ```
 
+`query_selection!` writes the select enum and the selection, and `query_order!`
+writes the order enum and the clause, each from one list of columns:
+
+```rust
+query_selection! {
+    Widget {
+        id,
+        tenantId,
+        notes,
+    }
+}
+
+query_order! {
+    Widget {
+        createdAt,
+        updatedAt,
+    }
+}
+```
+
+A column is written as its wire name, which the macro spells as the variant and
+carries as the field's name, so `tenantId` becomes `WidgetSelectField::TenantId`
+and selects `"tenantId"`. The selection is an object naming the chosen columns and
+the clause is a `["column", "direction"]` pair, both as the TypeScript read sends
+them. The generator writes a comment above each invocation naming the types it
+produces, so a module says what it declares without expanding a macro.
+
 ## Values
 
 A filter is one comparison, on one column. Each filterable column has its own
@@ -189,7 +216,7 @@ pub enum WidgetFilter {
 }
 ```
 
-`flat_query_filters!` writes it, its `From` impls, and its lowering from the
+`query_filters!` writes it, its `From` impls, and its lowering from the
 same column table, so a new column reaches the enum by being listed once. Every
 column type converts into it (`impl From<WidgetTenantIdFilter> for WidgetFilter`),
 so `filter` takes whichever the caller has. The group is a
@@ -277,10 +304,10 @@ WidgetIssueDateFilter::Between(from, to)      // "issueDate" BETWEEN $1 AND $2
 
 A column with no `ops=` offers `eq` alone, which is why a bare `@queryFilter`
 reads as an equality filter. Each column is one line of the module's
-`flat_query_filters!` invocation:
+`query_filters!` invocation:
 
 ```rust
-flat_query_filters! {
+query_filters! {
     Widget {
         tenantId: TenantId, Uuid, [eq],
         issueDate: chrono::DateTime<chrono::Utc>, Timestamptz, [gte, lte, between],

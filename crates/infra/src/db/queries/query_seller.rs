@@ -5,216 +5,38 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::invoicing_service::seller::Seller;
 use models::domain::invoicing_service::seller::SellerId;
 use models::domain::invoicing_service::seller::SellerSelect;
 use models::domain::user_service::tenant::TenantId;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `Seller` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum SellerSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-    #[serde(rename = "name")]
-    Name,
-    #[serde(rename = "businessId")]
-    BusinessId,
-    #[serde(rename = "eInvoiceAddress")]
-    EInvoiceAddress,
-    #[serde(rename = "eInvoiceOperator")]
-    EInvoiceOperator,
-    #[serde(rename = "language")]
-    Language,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl SellerSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-        Self::Name,
-        Self::BusinessId,
-        Self::EInvoiceAddress,
-        Self::EInvoiceOperator,
-        Self::Language,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-            Self::Name => "name",
-            Self::BusinessId => "businessId",
-            Self::EInvoiceAddress => "eInvoiceAddress",
-            Self::EInvoiceOperator => "eInvoiceOperator",
-            Self::Language => "language",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `SellerSelectField` and `SellerSelection`.
+query_selection! {
+    Seller {
+        id,
+        tenantId,
+        name,
+        businessId,
+        eInvoiceAddress,
+        eInvoiceOperator,
+        language,
+        createdAt,
+        updatedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for SellerSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `Seller` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct SellerSelection(pub Vec<SellerSelectField>);
-
-impl serde::Serialize for SellerSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SellerSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, SellerSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<SellerSelectField> for SellerSelection {
-    fn from_iter<I: IntoIterator<Item = SellerSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `SellerIdFilter`, `SellerTenantIdFilter`, and `SellerFilter`.
+query_filters! {
     Seller {
         id: SellerId, Uuid, [eq],
         tenantId: TenantId, Uuid, [eq],
     }
 }
 
-/// A column of `Seller` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum SellerOrderField {}
-
-impl SellerOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> SellerOrder {
-        SellerOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> SellerOrder {
-        SellerOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for SellerOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `Seller` read, built from `SellerOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct SellerOrder {
-    field: SellerOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for SellerOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for SellerOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) = flat_filter::sort(deserializer, SellerOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl SellerOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `SellerOrderField` and `SellerOrder`.
+query_order! { Seller {} }
 
 /// The query of `Seller`: its selection, filters, ordering, and paging.
 pub type SellerQuery = EntityQuery<Seller>;

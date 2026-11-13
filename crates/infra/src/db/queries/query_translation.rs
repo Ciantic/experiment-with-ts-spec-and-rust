@@ -5,187 +5,29 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::invoicing_service::translation::Translation;
 use models::domain::invoicing_service::translation::TranslationSelect;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `Translation` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum TranslationSelectField {
-    #[serde(rename = "lang")]
-    Lang,
-    #[serde(rename = "key")]
-    Key,
-    #[serde(rename = "value")]
-    Value,
-}
-
-impl TranslationSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Lang,
-        Self::Key,
-        Self::Value,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Lang => "lang",
-            Self::Key => "key",
-            Self::Value => "value",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `TranslationSelectField` and `TranslationSelection`.
+query_selection! {
+    Translation {
+        lang,
+        key,
+        value,
     }
 }
 
-impl std::fmt::Display for TranslationSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `Translation` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct TranslationSelection(pub Vec<TranslationSelectField>);
-
-impl serde::Serialize for TranslationSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TranslationSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, TranslationSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<TranslationSelectField> for TranslationSelection {
-    fn from_iter<I: IntoIterator<Item = TranslationSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `TranslationLangFilter`, `TranslationKeyFilter`, and `TranslationFilter`.
+query_filters! {
     Translation {
         lang: String, Text, [eq],
         key: String, Text, [eq],
     }
 }
 
-/// A column of `Translation` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum TranslationOrderField {}
-
-impl TranslationOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> TranslationOrder {
-        TranslationOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> TranslationOrder {
-        TranslationOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for TranslationOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `Translation` read, built from `TranslationOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TranslationOrder {
-    field: TranslationOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for TranslationOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TranslationOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) =
-            flat_filter::sort(deserializer, TranslationOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl TranslationOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `TranslationOrderField` and `TranslationOrder`.
+query_order! { Translation {} }
 
 /// The query of `Translation`: its selection, filters, ordering, and paging.
 pub type TranslationQuery = EntityQuery<Translation>;

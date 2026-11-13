@@ -5,113 +5,28 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::user_service::tenant::TenantId;
 use models::domain::user_service::tenant_shared_permission::TenantSharedPermission;
 use models::domain::user_service::tenant_shared_permission::TenantSharedPermissionId;
 use models::domain::user_service::tenant_shared_permission::TenantSharedPermissionSelect;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `TenantSharedPermission` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum TenantSharedPermissionSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "ownerTenantId")]
-    OwnerTenantId,
-    #[serde(rename = "sharedTenantId")]
-    SharedTenantId,
-    #[serde(rename = "permissions")]
-    Permissions,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl TenantSharedPermissionSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::OwnerTenantId,
-        Self::SharedTenantId,
-        Self::Permissions,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::OwnerTenantId => "ownerTenantId",
-            Self::SharedTenantId => "sharedTenantId",
-            Self::Permissions => "permissions",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `TenantSharedPermissionSelectField` and `TenantSharedPermissionSelection`.
+query_selection! {
+    TenantSharedPermission {
+        id,
+        ownerTenantId,
+        sharedTenantId,
+        permissions,
+        createdAt,
+        updatedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for TenantSharedPermissionSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `TenantSharedPermission` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct TenantSharedPermissionSelection(pub Vec<TenantSharedPermissionSelectField>);
-
-impl serde::Serialize for TenantSharedPermissionSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TenantSharedPermissionSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, TenantSharedPermissionSelectField::from_column)
-            .map(Self)
-    }
-}
-
-impl FromIterator<TenantSharedPermissionSelectField> for TenantSharedPermissionSelection {
-    fn from_iter<I: IntoIterator<Item = TenantSharedPermissionSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `TenantSharedPermissionIdFilter`, `TenantSharedPermissionOwnerTenantIdFilter`,
+// `TenantSharedPermissionSharedTenantIdFilter`, and `TenantSharedPermissionFilter`.
+query_filters! {
     TenantSharedPermission {
         id: TenantSharedPermissionId, Uuid, [eq],
         ownerTenantId: TenantId, Uuid, [eq],
@@ -119,93 +34,8 @@ flat_query_filters! {
     }
 }
 
-/// A column of `TenantSharedPermission` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum TenantSharedPermissionOrderField {}
-
-impl TenantSharedPermissionOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> TenantSharedPermissionOrder {
-        TenantSharedPermissionOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> TenantSharedPermissionOrder {
-        TenantSharedPermissionOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for TenantSharedPermissionOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `TenantSharedPermission` read, built from `TenantSharedPermissionOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct TenantSharedPermissionOrder {
-    field: TenantSharedPermissionOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for TenantSharedPermissionOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for TenantSharedPermissionOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) =
-            flat_filter::sort(deserializer, TenantSharedPermissionOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl TenantSharedPermissionOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `TenantSharedPermissionOrderField` and `TenantSharedPermissionOrder`.
+query_order! { TenantSharedPermission {} }
 
 /// The query of `TenantSharedPermission`: its selection, filters, ordering, and paging.
 pub type TenantSharedPermissionQuery = EntityQuery<TenantSharedPermission>;

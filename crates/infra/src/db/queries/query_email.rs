@@ -5,141 +5,35 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::emailing_service::email::Email;
 use models::domain::emailing_service::email::EmailId;
 use models::domain::emailing_service::email::EmailSelect;
 use models::domain::emailing_service::email::EmailStatus;
 use models::domain::user_service::tenant::TenantId;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `Email` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum EmailSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-    #[serde(rename = "from")]
-    From,
-    #[serde(rename = "to")]
-    To,
-    #[serde(rename = "subject")]
-    Subject,
-    #[serde(rename = "body")]
-    Body,
-    #[serde(rename = "status")]
-    Status,
-    #[serde(rename = "attempts")]
-    Attempts,
-    #[serde(rename = "maxAttempts")]
-    MaxAttempts,
-    #[serde(rename = "lastError")]
-    LastError,
-    #[serde(rename = "sentAt")]
-    SentAt,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl EmailSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-        Self::From,
-        Self::To,
-        Self::Subject,
-        Self::Body,
-        Self::Status,
-        Self::Attempts,
-        Self::MaxAttempts,
-        Self::LastError,
-        Self::SentAt,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-            Self::From => "from",
-            Self::To => "to",
-            Self::Subject => "subject",
-            Self::Body => "body",
-            Self::Status => "status",
-            Self::Attempts => "attempts",
-            Self::MaxAttempts => "maxAttempts",
-            Self::LastError => "lastError",
-            Self::SentAt => "sentAt",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `EmailSelectField` and `EmailSelection`.
+query_selection! {
+    Email {
+        id,
+        tenantId,
+        from,
+        to,
+        subject,
+        body,
+        status,
+        attempts,
+        maxAttempts,
+        lastError,
+        sentAt,
+        createdAt,
+        updatedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for EmailSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `Email` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct EmailSelection(pub Vec<EmailSelectField>);
-
-impl serde::Serialize for EmailSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for EmailSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, EmailSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<EmailSelectField> for EmailSelection {
-    fn from_iter<I: IntoIterator<Item = EmailSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `EmailIdFilter`, `EmailTenantIdFilter`, `EmailStatusFilter`, and `EmailFilter`.
+query_filters! {
     Email {
         id: EmailId, Uuid, [eq],
         tenantId: TenantId, Uuid, [eq],
@@ -147,102 +41,11 @@ flat_query_filters! {
     }
 }
 
-/// A column of `Email` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum EmailOrderField {
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-}
-
-impl EmailOrderField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::CreatedAt,
-        Self::UpdatedAt,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-        }
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> EmailOrder {
-        EmailOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> EmailOrder {
-        EmailOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for EmailOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `Email` read, built from `EmailOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct EmailOrder {
-    field: EmailOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for EmailOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for EmailOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) = flat_filter::sort(deserializer, EmailOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl EmailOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
+// Writes `EmailOrderField` and `EmailOrder`.
+query_order! {
+    Email {
+        createdAt,
+        updatedAt,
     }
 }
 

@@ -5,117 +5,30 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::primitives::email_address::EmailAddress;
 use models::domain::user_service::login_link::LoginLink;
 use models::domain::user_service::login_link::LoginLinkId;
 use models::domain::user_service::login_link::LoginLinkSelect;
 use models::domain::user_service::primitives::login_link_token_hash::LoginLinkTokenHash;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `LoginLink` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum LoginLinkSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "email")]
-    Email,
-    #[serde(rename = "tokenHash")]
-    TokenHash,
-    #[serde(rename = "expiresAt")]
-    ExpiresAt,
-    #[serde(rename = "consumedAt")]
-    ConsumedAt,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl LoginLinkSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::Email,
-        Self::TokenHash,
-        Self::ExpiresAt,
-        Self::ConsumedAt,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::Email => "email",
-            Self::TokenHash => "tokenHash",
-            Self::ExpiresAt => "expiresAt",
-            Self::ConsumedAt => "consumedAt",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `LoginLinkSelectField` and `LoginLinkSelection`.
+query_selection! {
+    LoginLink {
+        id,
+        email,
+        tokenHash,
+        expiresAt,
+        consumedAt,
+        createdAt,
+        updatedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for LoginLinkSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `LoginLink` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct LoginLinkSelection(pub Vec<LoginLinkSelectField>);
-
-impl serde::Serialize for LoginLinkSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for LoginLinkSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, LoginLinkSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<LoginLinkSelectField> for LoginLinkSelection {
-    fn from_iter<I: IntoIterator<Item = LoginLinkSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `LoginLinkIdFilter`, `LoginLinkEmailFilter`, `LoginLinkTokenHashFilter`,
+// `LoginLinkExpiresAtFilter`, `LoginLinkConsumedAtFilter`, and `LoginLinkFilter`.
+query_filters! {
     LoginLink {
         id: LoginLinkId, Uuid, [eq],
         email: EmailAddress, Text, [eq],
@@ -125,92 +38,8 @@ flat_query_filters! {
     }
 }
 
-/// A column of `LoginLink` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum LoginLinkOrderField {}
-
-impl LoginLinkOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> LoginLinkOrder {
-        LoginLinkOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> LoginLinkOrder {
-        LoginLinkOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for LoginLinkOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `LoginLink` read, built from `LoginLinkOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct LoginLinkOrder {
-    field: LoginLinkOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for LoginLinkOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for LoginLinkOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) = flat_filter::sort(deserializer, LoginLinkOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl LoginLinkOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `LoginLinkOrderField` and `LoginLinkOrder`.
+query_order! { LoginLink {} }
 
 /// The query of `LoginLink`: its selection, filters, ordering, and paging.
 pub type LoginLinkQuery = EntityQuery<LoginLink>;

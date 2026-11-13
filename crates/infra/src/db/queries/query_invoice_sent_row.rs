@@ -5,221 +5,39 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::invoicing_service::invoice_sent_row::InvoiceSentRow;
 use models::domain::invoicing_service::invoice_sent_row::InvoiceSentRowId;
 use models::domain::invoicing_service::invoice_sent_row::InvoiceSentRowSelect;
 use models::domain::user_service::tenant::TenantId;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `InvoiceSentRow` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum InvoiceSentRowSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-    #[serde(rename = "invoiceSentId")]
-    InvoiceSentId,
-    #[serde(rename = "description")]
-    Description,
-    #[serde(rename = "quantity")]
-    Quantity,
-    #[serde(rename = "unit")]
-    Unit,
-    #[serde(rename = "unitPrice")]
-    UnitPrice,
-    #[serde(rename = "taxRate")]
-    TaxRate,
-    #[serde(rename = "netAmount")]
-    NetAmount,
-    #[serde(rename = "taxAmount")]
-    TaxAmount,
-    #[serde(rename = "totalAmount")]
-    TotalAmount,
-}
-
-impl InvoiceSentRowSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-        Self::InvoiceSentId,
-        Self::Description,
-        Self::Quantity,
-        Self::Unit,
-        Self::UnitPrice,
-        Self::TaxRate,
-        Self::NetAmount,
-        Self::TaxAmount,
-        Self::TotalAmount,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-            Self::InvoiceSentId => "invoiceSentId",
-            Self::Description => "description",
-            Self::Quantity => "quantity",
-            Self::Unit => "unit",
-            Self::UnitPrice => "unitPrice",
-            Self::TaxRate => "taxRate",
-            Self::NetAmount => "netAmount",
-            Self::TaxAmount => "taxAmount",
-            Self::TotalAmount => "totalAmount",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `InvoiceSentRowSelectField` and `InvoiceSentRowSelection`.
+query_selection! {
+    InvoiceSentRow {
+        id,
+        tenantId,
+        invoiceSentId,
+        description,
+        quantity,
+        unit,
+        unitPrice,
+        taxRate,
+        netAmount,
+        taxAmount,
+        totalAmount,
     }
 }
 
-impl std::fmt::Display for InvoiceSentRowSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `InvoiceSentRow` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct InvoiceSentRowSelection(pub Vec<InvoiceSentRowSelectField>);
-
-impl serde::Serialize for InvoiceSentRowSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for InvoiceSentRowSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, InvoiceSentRowSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<InvoiceSentRowSelectField> for InvoiceSentRowSelection {
-    fn from_iter<I: IntoIterator<Item = InvoiceSentRowSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `InvoiceSentRowIdFilter`, `InvoiceSentRowTenantIdFilter`, and `InvoiceSentRowFilter`.
+query_filters! {
     InvoiceSentRow {
         id: InvoiceSentRowId, Uuid, [eq],
         tenantId: TenantId, Uuid, [eq],
     }
 }
 
-/// A column of `InvoiceSentRow` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum InvoiceSentRowOrderField {}
-
-impl InvoiceSentRowOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> InvoiceSentRowOrder {
-        InvoiceSentRowOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> InvoiceSentRowOrder {
-        InvoiceSentRowOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for InvoiceSentRowOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `InvoiceSentRow` read, built from `InvoiceSentRowOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct InvoiceSentRowOrder {
-    field: InvoiceSentRowOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for InvoiceSentRowOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for InvoiceSentRowOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) =
-            flat_filter::sort(deserializer, InvoiceSentRowOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl InvoiceSentRowOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `InvoiceSentRowOrderField` and `InvoiceSentRowOrder`.
+query_order! { InvoiceSentRow {} }
 
 /// The query of `InvoiceSentRow`: its selection, filters, ordering, and paging.
 pub type InvoiceSentRowQuery = EntityQuery<InvoiceSentRow>;

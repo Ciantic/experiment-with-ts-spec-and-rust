@@ -5,112 +5,28 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::primitives::email_address::EmailAddress;
 use models::domain::user_service::user::User;
 use models::domain::user_service::user::UserId;
 use models::domain::user_service::user::UserSelect;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `User` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum UserSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "email")]
-    Email,
-    #[serde(rename = "emailVerifiedAt")]
-    EmailVerifiedAt,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "deletedAt")]
-    DeletedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl UserSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::Email,
-        Self::EmailVerifiedAt,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::DeletedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::Email => "email",
-            Self::EmailVerifiedAt => "emailVerifiedAt",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::DeletedAt => "deletedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `UserSelectField` and `UserSelection`.
+query_selection! {
+    User {
+        id,
+        email,
+        emailVerifiedAt,
+        createdAt,
+        updatedAt,
+        deletedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for UserSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `User` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct UserSelection(pub Vec<UserSelectField>);
-
-impl serde::Serialize for UserSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for UserSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, UserSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<UserSelectField> for UserSelection {
-    fn from_iter<I: IntoIterator<Item = UserSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `UserIdFilter`, `UserEmailFilter`, `UserEmailVerifiedAtFilter`, `UserDeletedAtFilter`, and
+// `UserFilter`.
+query_filters! {
     User {
         id: UserId, Uuid, [eq],
         email: EmailAddress, Text, [eq],
@@ -119,92 +35,8 @@ flat_query_filters! {
     }
 }
 
-/// A column of `User` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum UserOrderField {}
-
-impl UserOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> UserOrder {
-        UserOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> UserOrder {
-        UserOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for UserOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `User` read, built from `UserOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct UserOrder {
-    field: UserOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for UserOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for UserOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) = flat_filter::sort(deserializer, UserOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl UserOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `UserOrderField` and `UserOrder`.
+query_order! { User {} }
 
 /// The query of `User`: its selection, filters, ordering, and paging.
 pub type UserQuery = EntityQuery<User>;

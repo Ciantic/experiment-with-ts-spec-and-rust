@@ -5,117 +5,30 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::user_service::primitives::user_session_token_hash::UserSessionTokenHash;
 use models::domain::user_service::user::UserId;
 use models::domain::user_service::user_session::UserSession;
 use models::domain::user_service::user_session::UserSessionId;
 use models::domain::user_service::user_session::UserSessionSelect;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `UserSession` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum UserSessionSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "userId")]
-    UserId,
-    #[serde(rename = "tokenHash")]
-    TokenHash,
-    #[serde(rename = "expiresAt")]
-    ExpiresAt,
-    #[serde(rename = "revokedAt")]
-    RevokedAt,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl UserSessionSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::UserId,
-        Self::TokenHash,
-        Self::ExpiresAt,
-        Self::RevokedAt,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::UserId => "userId",
-            Self::TokenHash => "tokenHash",
-            Self::ExpiresAt => "expiresAt",
-            Self::RevokedAt => "revokedAt",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `UserSessionSelectField` and `UserSessionSelection`.
+query_selection! {
+    UserSession {
+        id,
+        userId,
+        tokenHash,
+        expiresAt,
+        revokedAt,
+        createdAt,
+        updatedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for UserSessionSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `UserSession` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct UserSessionSelection(pub Vec<UserSessionSelectField>);
-
-impl serde::Serialize for UserSessionSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for UserSessionSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, UserSessionSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<UserSessionSelectField> for UserSessionSelection {
-    fn from_iter<I: IntoIterator<Item = UserSessionSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `UserSessionIdFilter`, `UserSessionUserIdFilter`, `UserSessionTokenHashFilter`,
+// `UserSessionExpiresAtFilter`, `UserSessionRevokedAtFilter`, and `UserSessionFilter`.
+query_filters! {
     UserSession {
         id: UserSessionId, Uuid, [eq],
         userId: UserId, Uuid, [eq],
@@ -125,93 +38,8 @@ flat_query_filters! {
     }
 }
 
-/// A column of `UserSession` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum UserSessionOrderField {}
-
-impl UserSessionOrderField {
-    /// Every field; empty because the entity declares none.
-    pub const ALL: &'static [Self] = &[];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {}
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> UserSessionOrder {
-        UserSessionOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> UserSessionOrder {
-        UserSessionOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for UserSessionOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `UserSession` read, built from `UserSessionOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct UserSessionOrder {
-    field: UserSessionOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for UserSessionOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for UserSessionOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) =
-            flat_filter::sort(deserializer, UserSessionOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl UserSessionOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
-    }
-}
+// Writes `UserSessionOrderField` and `UserSessionOrder`.
+query_order! { UserSession {} }
 
 /// The query of `UserSession`: its selection, filters, ordering, and paging.
 pub type UserSessionQuery = EntityQuery<UserSession>;

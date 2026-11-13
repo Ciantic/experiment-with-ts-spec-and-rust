@@ -5,150 +5,39 @@ use crate::db::{
     flat_filter,
 };
 use datagrid_query::{FilterOperator, SelectColumn, Sort, SortDirection};
-use macro_helpers::flat_query_filters;
+use macro_helpers::{query_filters, query_order, query_selection};
 use models::domain::invoicing_service::customer::CustomerId;
 use models::domain::invoicing_service::invoice::Invoice;
 use models::domain::invoicing_service::invoice::InvoiceId;
 use models::domain::invoicing_service::invoice::InvoiceSelect;
 use models::domain::invoicing_service::seller::SellerId;
 use models::domain::user_service::tenant::TenantId;
-use serde::ser::{SerializeMap, SerializeTuple};
 
-/// A column of `Invoice` a read may select.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum InvoiceSelectField {
-    #[serde(rename = "id")]
-    Id,
-    #[serde(rename = "tenantId")]
-    TenantId,
-    #[serde(rename = "number")]
-    Number,
-    #[serde(rename = "customerId")]
-    CustomerId,
-    #[serde(rename = "sellerId")]
-    SellerId,
-    #[serde(rename = "language")]
-    Language,
-    #[serde(rename = "issueDate")]
-    IssueDate,
-    #[serde(rename = "dueDate")]
-    DueDate,
-    #[serde(rename = "netAmount")]
-    NetAmount,
-    #[serde(rename = "taxAmount")]
-    TaxAmount,
-    #[serde(rename = "totalAmount")]
-    TotalAmount,
-    #[serde(rename = "notes")]
-    Notes,
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-    #[serde(rename = "deletedAt")]
-    DeletedAt,
-    #[serde(rename = "version")]
-    Version,
-}
-
-impl InvoiceSelectField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::Id,
-        Self::TenantId,
-        Self::Number,
-        Self::CustomerId,
-        Self::SellerId,
-        Self::Language,
-        Self::IssueDate,
-        Self::DueDate,
-        Self::NetAmount,
-        Self::TaxAmount,
-        Self::TotalAmount,
-        Self::Notes,
-        Self::CreatedAt,
-        Self::UpdatedAt,
-        Self::DeletedAt,
-        Self::Version,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Id => "id",
-            Self::TenantId => "tenantId",
-            Self::Number => "number",
-            Self::CustomerId => "customerId",
-            Self::SellerId => "sellerId",
-            Self::Language => "language",
-            Self::IssueDate => "issueDate",
-            Self::DueDate => "dueDate",
-            Self::NetAmount => "netAmount",
-            Self::TaxAmount => "taxAmount",
-            Self::TotalAmount => "totalAmount",
-            Self::Notes => "notes",
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-            Self::DeletedAt => "deletedAt",
-            Self::Version => "version",
-        }
-    }
-
-    /// The select-list entry for this column.
-    #[must_use]
-    pub fn select(self) -> SelectColumn {
-        SelectColumn::Name(self.as_str().to_owned())
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
+// Writes `InvoiceSelectField` and `InvoiceSelection`.
+query_selection! {
+    Invoice {
+        id,
+        tenantId,
+        number,
+        customerId,
+        sellerId,
+        language,
+        issueDate,
+        dueDate,
+        netAmount,
+        taxAmount,
+        totalAmount,
+        notes,
+        createdAt,
+        updatedAt,
+        deletedAt,
+        version,
     }
 }
 
-impl std::fmt::Display for InvoiceSelectField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// The columns a `Invoice` read selects; empty selects every one.
-///
-/// On the wire it is an object naming each column, as the TypeScript read sends it.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct InvoiceSelection(pub Vec<InvoiceSelectField>);
-
-impl serde::Serialize for InvoiceSelection {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut map = serializer.serialize_map(Some(self.0.len()))?;
-        for field in &self.0 {
-            map.serialize_entry(field.as_str(), &true)?;
-        }
-        map.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for InvoiceSelection {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        flat_filter::selection(deserializer, InvoiceSelectField::from_column).map(Self)
-    }
-}
-
-impl FromIterator<InvoiceSelectField> for InvoiceSelection {
-    fn from_iter<I: IntoIterator<Item = InvoiceSelectField>>(fields: I) -> Self {
-        Self(fields.into_iter().collect())
-    }
-}
-
-flat_query_filters! {
+// Writes `InvoiceIdFilter`, `InvoiceTenantIdFilter`, `InvoiceCustomerIdFilter`,
+// `InvoiceSellerIdFilter`, `InvoiceIssueDateFilter`, `InvoiceDeletedAtFilter`, and `InvoiceFilter`.
+query_filters! {
     Invoice {
         id: InvoiceId, Uuid, [eq],
         tenantId: TenantId, Uuid, [eq],
@@ -159,102 +48,11 @@ flat_query_filters! {
     }
 }
 
-/// A column of `Invoice` a read may order by, from `@queryOrderBy`.
-#[derive(
-    Clone, Copy, Debug, serde::Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize,
-)]
-pub enum InvoiceOrderField {
-    #[serde(rename = "createdAt")]
-    CreatedAt,
-    #[serde(rename = "updatedAt")]
-    UpdatedAt,
-}
-
-impl InvoiceOrderField {
-    /// Every field, in declaration order.
-    #[rustfmt::skip]
-    pub const ALL: &'static [Self] = &[
-        Self::CreatedAt,
-        Self::UpdatedAt,
-    ];
-
-    /// The column this field names.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CreatedAt => "createdAt",
-            Self::UpdatedAt => "updatedAt",
-        }
-    }
-
-    /// Ascending order on this column.
-    #[must_use]
-    pub fn asc(self) -> InvoiceOrder {
-        InvoiceOrder {
-            field: self,
-            direction: SortDirection::Asc,
-        }
-    }
-
-    /// Descending order on this column.
-    #[must_use]
-    pub fn desc(self) -> InvoiceOrder {
-        InvoiceOrder {
-            field: self,
-            direction: SortDirection::Desc,
-        }
-    }
-
-    /// The field a wire column names; `None` when the entity has no such column.
-    #[must_use]
-    pub fn from_column(column: &str) -> Option<Self> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|field| field.as_str() == column)
-    }
-}
-
-impl std::fmt::Display for InvoiceOrderField {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-/// One ordering clause of a `Invoice` read, built from `InvoiceOrderField`.
-///
-/// On the wire it is a `["column", "asc" | "desc"]` tuple, as the TypeScript read sends it.
-#[derive(Clone, Debug, PartialEq)]
-pub struct InvoiceOrder {
-    field: InvoiceOrderField,
-    direction: SortDirection,
-}
-
-impl serde::Serialize for InvoiceOrder {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut tuple = serializer.serialize_tuple(2)?;
-        tuple.serialize_element(self.field.as_str())?;
-        tuple.serialize_element(&self.direction)?;
-        tuple.end()
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for InvoiceOrder {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let (field, direction) = flat_filter::sort(deserializer, InvoiceOrderField::from_column)?;
-        Ok(Self { field, direction })
-    }
-}
-
-impl InvoiceOrder {
-    /// The builder's ordering clause.
-    #[must_use]
-    pub fn into_sort(self) -> Sort {
-        Sort {
-            column: self.field.as_str().to_owned(),
-            direction: self.direction,
-            nulls: None,
-        }
+// Writes `InvoiceOrderField` and `InvoiceOrder`.
+query_order! {
+    Invoice {
+        createdAt,
+        updatedAt,
     }
 }
 
