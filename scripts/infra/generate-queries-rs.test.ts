@@ -151,10 +151,10 @@ describe("fieldEnumName", () => {
 });
 
 describe("renderQueryModule", () => {
-    it("takes the entity's own read options, not the generic ones", () => {
+    it("names the entity's own query type, not the generic read options", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("pub struct InvoiceReadOptions {");
+        expect(code).toContain("pub struct InvoiceQuery {");
         expect(code).toContain("pub select: InvoiceSelection,");
         expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
         expect(code).toContain("pub order: Vec<InvoiceOrder>,");
@@ -317,13 +317,13 @@ describe("renderQueryModule", () => {
         expect(code).toContain('    #[serde(rename = "tenantId")]\n    TenantId,');
     });
 
-    it("serializes the read options as camelCase JSON, rejecting an unknown key", () => {
+    it("serializes the query as camelCase JSON, rejecting an unknown key", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain(
             "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
         );
-        expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceReadOptions {');
+        expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceQuery {');
         // The TypeScript read always sends a selection, so a read always writes one, even empty.
         expect(code).toContain("#[serde(default)]\n    pub select: InvoiceSelection,");
         expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]\n    pub limit: Option<u64>,');

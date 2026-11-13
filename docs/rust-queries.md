@@ -5,25 +5,25 @@
 `spec/src/widget-service/Widget.ts` gets
 `crates/infra/src/db/queries/query_widget.rs`. The crate writes no SQL of its
 own: every read is built by `datagrid_query`. Rust and the TypeScript side share
-the read options' wire format, so one JSON body describes a read to either
+the query's wire format, so one JSON body describes a read to either
 backend, though each lowers it to its own SQL.
 
 ## The generated module
 
 ```rust
-impl WidgetReadOptions {
+impl WidgetQuery {
     pub fn as_sql(&self) -> Result<String, ReadError> { … }
 
     pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<WidgetSelect>, ReadError> { … }
 }
 ```
 
-The read takes the entity's own options, `WidgetReadOptions`, so its selection
-and ordering can only name `Widget`'s columns. The generic `ReadOptions` is not
-part of the generated surface; the entity options convert to it internally. A
-module declares types and builders, and these two methods are what it does with
-them: `query` runs the statement and decodes every row into the model's selected
-shape, `WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and `as_sql`
+The read takes the entity's own query type, `WidgetQuery`, so its selection and
+ordering can only name `Widget`'s columns. The generic `ReadOptions` is not part
+of the generated surface; the query converts to it internally. A module declares
+types and builders, and these two methods are what it does with them: `query`
+runs the statement and decodes every row into the model's selected shape,
+`WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and `as_sql`
 reports the same statement without the database, to log or assert on. `as_sql`
 borrows, so a read can be reported and then still run.
 
@@ -34,7 +34,7 @@ A field the read did not select stays `Partial::Unset`, so the caller can tell
 
 ```rust
 use infra::db::queries::{
-    InvoiceDeletedAtFilter, InvoiceOrderField, InvoiceReadOptions, InvoiceSelectField, InvoiceTenantIdFilter,
+    InvoiceDeletedAtFilter, InvoiceOrderField, InvoiceQuery, InvoiceSelectField, InvoiceTenantIdFilter,
 };
 use infra::db::ReadError;
 use models::domain::invoicing_service::invoice::InvoiceSelect;
@@ -47,7 +47,7 @@ async fn open_invoices(
     tenant: &TenantId,
     limit: u64,
 ) -> Result<Vec<InvoiceSelect>, ReadError> {
-    InvoiceReadOptions::with_select([
+    InvoiceQuery::with_select([
         InvoiceSelectField::Id,
         InvoiceSelectField::Number,
         InvoiceSelectField::TotalAmount,
@@ -72,7 +72,7 @@ Because `filter` takes `impl Into<InvoiceFilter>`, a column's own filter type ca
 be passed straight in, and the same column may be filtered more than once:
 
 ```rust
-let options = InvoiceReadOptions::default()
+let invoice_query = InvoiceQuery::default()
     .filter(InvoiceTenantIdFilter::Eq(tenant.clone()))
     .filter(InvoiceTenantIdFilter::Any(other_tenants.clone()))
     .filter_or([
@@ -106,14 +106,14 @@ column:
 One row is the first result of a limited read, since there is no separate `get`:
 
 ```rust
-let invoice = options.query(pool).await?.pop();
+let invoice = invoice_query.query(pool).await?.pop();
 ```
 
 An empty `select` reads every column, and `as_sql` reports the statement instead
 of running it, so the read can be logged or asserted on before it is sent:
 
 ```rust
-println!("{}", options.as_sql()?);
+println!("{}", invoice_query.as_sql()?);
 // SELECT "id", "number", "totalAmount", "createdAt" FROM "invoice"
 //   WHERE "tenantId" = $1 AND "deletedAt" IS NULL
 //   ORDER BY "createdAt" DESC LIMIT 25
@@ -186,7 +186,7 @@ Because the read's `filters` is a list combined with `and`, the same column may
 be filtered more than once:
 
 ```rust
-WidgetReadOptions::default()
+WidgetQuery::default()
     .filter(WidgetTenantIdFilter::Eq(tenant.clone()))
     .filter(WidgetTenantIdFilter::Any(other_tenants))
 // "tenantId" = $1 AND "tenantId" = ANY($2)
@@ -207,7 +207,7 @@ A branch is the same enum, so a group is a branch and the tree nests. `A and
 (D or (E and F))` needs no rewriting:
 
 ```rust
-WidgetReadOptions::default()
+WidgetQuery::default()
     .filter(WidgetTenantIdFilter::Eq(tenant))
     .filter_or([
         WidgetFilter::from(WidgetAccountIdFilter::Eq(first)),
@@ -268,13 +268,13 @@ pub enum WidgetTenantIdFilter {
 }
 ```
 
-## Read options
+## The query type
 
-Each generated module declares the entity's read options, whose fields are the
+Each generated module declares the entity's query type, whose fields are the
 entity's own typed sets:
 
 ```rust
-pub struct WidgetReadOptions {
+pub struct WidgetQuery {
     pub select: WidgetSelection,
     pub filters: Vec<WidgetFilter>,
     pub order: Vec<WidgetOrder>,
@@ -288,12 +288,12 @@ An empty `select` selects every column; `WidgetSelection` is a list of
 one column and one comparison, or a group of entries. A `WidgetOrder` pairs a
 `WidgetOrderField` with a direction, and leaves nulls placement to the column's
 own default for that direction. Both types only mention the entity's own columns,
-so an options value cannot name a column the spec forbids.
+so a query cannot name a column the spec forbids.
 
-The options are built either literally or fluently:
+A query is built either literally or fluently:
 
 ```rust
-let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
+let query = WidgetQuery::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
     .filter(WidgetTenantIdFilter::Eq(tenant_id))
     .order(WidgetOrderField::CreatedAt.desc())
     .limit(50);
@@ -302,7 +302,7 @@ let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelec
 Every builder takes and returns `self`, and the last step is either `query`, which
 runs the read, or `as_sql`, which reports the statement it would run.
 
-`into_read_options` lowers them to the source-independent `ReadOptions` in
+`into_read_options` lowers it to the source-independent `ReadOptions` in
 `crates/infra/src/db/read_options.rs`. Both that method and the type are
 crate-internal; the fields are `datagrid_query` types:
 
@@ -323,14 +323,14 @@ the entity's fields lower to them inside the module.
 
 ## JSON
 
-`WidgetReadOptions` and everything it holds implement `serde::Serialize` and
+`WidgetQuery` and everything it holds implement `serde::Serialize` and
 `serde::Deserialize`, so a read can cross a boundary — an HTTP body, a cache
 entry, a test fixture — and come back:
 
 ```rust
-let json = serde_json::to_string(&options)?;
-let back: WidgetReadOptions = serde_json::from_str(&json)?;
-assert_eq!(back, options);
+let json = serde_json::to_string(&query)?;
+let back: WidgetQuery = serde_json::from_str(&json)?;
+assert_eq!(back, query);
 ```
 
 The shape is the one the TypeScript read sends: a select is an object naming its
@@ -367,7 +367,7 @@ may, and each of them is again an entry, so a group nests to any depth.
 
 Decoding rejects everything the entity's own types do not allow:
 
-- An unknown key in the options is an error.
+- An unknown key in the query is an error.
 - A column the entity does not declare is an error, and so is a column that
   carries no `@queryFilter` in `filters` or no `@queryOrderBy` in `order`.
 - An operator the column's `ops=` does not name is an error, so a payload cannot
@@ -440,7 +440,7 @@ names, which is why the selected shape carries `#[serde(rename_all =
 directly:
 
 ```rust
-let widgets = options.query(&pool).await?;
+let widgets = widget_query.query(&pool).await?;
 ```
 
 Binding is type-directed. sqlx declares each parameter's type when it prepares
@@ -459,7 +459,7 @@ guess.
 ## Errors
 
 `ReadError` is the read's one failure type, with a variant per stage: `Build`
-(the options do not form a statement), `Plan` (the parameters and the filters'
+(the query does not form a statement), `Plan` (the parameters and the filters'
 types disagree), `Encode` (a model value has no JSON form), `Execute` (the
 driver rejected the statement), `InvalidValue` (a value does not fit its column
 type), `Unsupported` (a returned column has a type the decoder does not

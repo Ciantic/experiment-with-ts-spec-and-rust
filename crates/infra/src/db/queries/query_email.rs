@@ -413,10 +413,10 @@ impl EmailOrder {
     }
 }
 
-/// What a read of `Email` selects, filters, orders, and pages.
+/// What a query of `Email` selects, filters, orders, and pages.
 #[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct EmailReadOptions {
+pub struct EmailQuery {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default)]
     pub select: EmailSelection,
@@ -434,8 +434,8 @@ pub struct EmailReadOptions {
     pub offset: Option<u64>,
 }
 
-impl EmailReadOptions {
-    /// A read that selects `fields`.
+impl EmailQuery {
+    /// A query that selects `fields`.
     #[must_use]
     pub fn with_select(fields: impl IntoIterator<Item = EmailSelectField>) -> Self {
         Self {
@@ -444,14 +444,14 @@ impl EmailReadOptions {
         }
     }
 
-    /// Add a filter; the read combines them with `and`. The same column may be filtered twice.
+    /// Add a filter; the query combines them with `and`. The same column may be filtered twice.
     #[must_use]
     pub fn filter(mut self, filter: impl Into<EmailFilter>) -> Self {
         self.filters.push(filter.into());
         self
     }
 
-    /// Add filters of which any may match; the read's own list stays `and`ed.
+    /// Add filters of which any may match; the query's own list stays `and`ed.
     #[must_use]
     pub fn filter_or(mut self, filters: impl IntoIterator<Item = impl Into<EmailFilter>>) -> Self {
         self.filters.push(EmailFilter::Group {
@@ -492,17 +492,17 @@ impl EmailReadOptions {
         self
     }
 
-    /// The statement this read runs, so a caller can log it before deciding to run it.
+    /// The statement this query runs, so a caller can log it before deciding to run it.
     ///
     /// # Errors
     ///
-    /// Returns [`ReadError::Build`] when the options do not form a valid statement.
+    /// Returns [`ReadError::Build`] when the query does not form a valid statement.
     pub fn as_sql(&self) -> Result<String, ReadError> {
         let read = self.clone().into_read_options()?;
         Ok(read.plan("email", None)?.sql)
     }
 
-    /// Run this read, decoding every row into the entity's selected shape.
+    /// Run this query, decoding every row into the entity's selected shape.
     ///
     /// # Errors
     ///

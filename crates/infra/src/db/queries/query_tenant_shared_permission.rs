@@ -380,10 +380,10 @@ impl TenantSharedPermissionOrder {
     }
 }
 
-/// What a read of `TenantSharedPermission` selects, filters, orders, and pages.
+/// What a query of `TenantSharedPermission` selects, filters, orders, and pages.
 #[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct TenantSharedPermissionReadOptions {
+pub struct TenantSharedPermissionQuery {
     /// The selected columns; empty (or omitted) selects every column.
     #[serde(default)]
     pub select: TenantSharedPermissionSelection,
@@ -401,8 +401,8 @@ pub struct TenantSharedPermissionReadOptions {
     pub offset: Option<u64>,
 }
 
-impl TenantSharedPermissionReadOptions {
-    /// A read that selects `fields`.
+impl TenantSharedPermissionQuery {
+    /// A query that selects `fields`.
     #[must_use]
     pub fn with_select(
         fields: impl IntoIterator<Item = TenantSharedPermissionSelectField>,
@@ -413,14 +413,14 @@ impl TenantSharedPermissionReadOptions {
         }
     }
 
-    /// Add a filter; the read combines them with `and`. The same column may be filtered twice.
+    /// Add a filter; the query combines them with `and`. The same column may be filtered twice.
     #[must_use]
     pub fn filter(mut self, filter: impl Into<TenantSharedPermissionFilter>) -> Self {
         self.filters.push(filter.into());
         self
     }
 
-    /// Add filters of which any may match; the read's own list stays `and`ed.
+    /// Add filters of which any may match; the query's own list stays `and`ed.
     #[must_use]
     pub fn filter_or(
         mut self,
@@ -467,17 +467,17 @@ impl TenantSharedPermissionReadOptions {
         self
     }
 
-    /// The statement this read runs, so a caller can log it before deciding to run it.
+    /// The statement this query runs, so a caller can log it before deciding to run it.
     ///
     /// # Errors
     ///
-    /// Returns [`ReadError::Build`] when the options do not form a valid statement.
+    /// Returns [`ReadError::Build`] when the query does not form a valid statement.
     pub fn as_sql(&self) -> Result<String, ReadError> {
         let read = self.clone().into_read_options()?;
         Ok(read.plan("tenant_shared_permission", None)?.sql)
     }
 
-    /// Run this read, decoding every row into the entity's selected shape.
+    /// Run this query, decoding every row into the entity's selected shape.
     ///
     /// # Errors
     ///

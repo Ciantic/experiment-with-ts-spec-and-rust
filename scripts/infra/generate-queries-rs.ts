@@ -712,17 +712,17 @@ function querySignature(entity: string): string[] {
     ];
 }
 
-/** Render the entity's read options, whose fields are the entity's own typed sets; `table` is what a read plans against. */
-function renderReadOptions(entity: string, table: string): string[] {
-    const options = `${entity}ReadOptions`;
+/** Render the entity's query builder, whose fields are the entity's own typed sets; `table` is what it plans against. */
+function renderQueryBuilder(entity: string, table: string): string[] {
+    const builder = `${entity}Query`;
     const select = `${entity}SelectField`;
     const selection = `${entity}Selection`;
     const order = `${entity}Order`;
     return [
-        `/// What a read of \`${entity}\` selects, filters, orders, and pages.`,
+        `/// What a query of \`${entity}\` selects, filters, orders, and pages.`,
         "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
         '#[serde(rename_all = "camelCase", deny_unknown_fields)]',
-        `pub struct ${options} {`,
+        `pub struct ${builder} {`,
         "    /// The selected columns; empty (or omitted) selects every column.",
         '    #[serde(default)]',
         `    pub select: ${selection},`,
@@ -740,8 +740,8 @@ function renderReadOptions(entity: string, table: string): string[] {
         "    pub offset: Option<u64>,",
         "}",
         "",
-        `impl ${options} {`,
-        "    /// A read that selects `fields`.",
+        `impl ${builder} {`,
+        "    /// A query that selects `fields`.",
         "    #[must_use]",
         ...withSelectSignature(select),
         "        Self {",
@@ -750,14 +750,14 @@ function renderReadOptions(entity: string, table: string): string[] {
         "        }",
         "    }",
         "",
-        `    /// Add a filter; the read combines them with \`and\`. The same column may be filtered twice.`,
+        `    /// Add a filter; the query combines them with \`and\`. The same column may be filtered twice.`,
         "    #[must_use]",
         `    pub fn filter(mut self, filter: impl Into<${entity}Filter>) -> Self {`,
         "        self.filters.push(filter.into());",
         "        self",
         "    }",
         "",
-        `    /// Add filters of which any may match; the read's own list stays \`and\`ed.`,
+        `    /// Add filters of which any may match; the query's own list stays \`and\`ed.`,
         "    #[must_use]",
         ...filterListSignature("filter_or", entity),
         `        self.filters.push(${entity}Filter::Group {`,
@@ -798,17 +798,17 @@ function renderReadOptions(entity: string, table: string): string[] {
         "        self",
         "    }",
         "",
-        "    /// The statement this read runs, so a caller can log it before deciding to run it.",
+        "    /// The statement this query runs, so a caller can log it before deciding to run it.",
         "    ///",
         "    /// # Errors",
         "    ///",
-        "    /// Returns [`ReadError::Build`] when the options do not form a valid statement.",
+        "    /// Returns [`ReadError::Build`] when the query does not form a valid statement.",
         `    pub fn as_sql(&self) -> Result<String, ReadError> {`,
         "        let read = self.clone().into_read_options()?;",
         `        Ok(read.plan(${JSON.stringify(table)}, None)?.sql)`,
         "    }",
         "",
-        "    /// Run this read, decoding every row into the entity's selected shape.",
+        "    /// Run this query, decoding every row into the entity's selected shape.",
         "    ///",
         "    /// # Errors",
         "    ///",
@@ -851,7 +851,7 @@ function renderReadOptions(entity: string, table: string): string[] {
     ];
 }
 
-/** Render one entity's query: its typed fields, its typed read options, and the read itself. */
+/** Render one entity's query builder: its typed fields, the query type, and the read it plans. */
 export function renderQueryModule(table: Table, spec?: SpecModel): string {
     const entity = table.interfaceName;
     const lines: string[] = [HEADER, ""];
@@ -896,7 +896,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push("");
     lines.push(...renderOrderStruct(entity));
     lines.push("");
-    lines.push(...renderReadOptions(entity, table.name));
+    lines.push(...renderQueryBuilder(entity, table.name));
     return lines.join("\n") + "\n";
 }
 
