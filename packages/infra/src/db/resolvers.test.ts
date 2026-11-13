@@ -657,6 +657,50 @@ describe("resolveMany comparisons", () => {
         expect(ids(rows)).toEqual(["w00001", "w01500"]);
     });
 
+    it("matches a group of which all branches must hold", async () => {
+        const rows = await widget([{ kind: "and", filters: [{ "seq__gte": 2 }, { "seq__lte": 3 }] }]);
+
+        expect(ids(rows)).toEqual(["w00002", "w00003"]);
+    });
+
+    it("keeps a nested and inside the or that holds it", async () => {
+        // `D or (E and F)`: flattening the branches into the or would match every row.
+        const rows = await widget([
+            {
+                kind: "or",
+                filters: [
+                    { "seq__eq": 1 },
+                    { kind: "and", filters: [{ "seq__gte": 1500 }, { "seq__lte": 1500 }] },
+                ],
+            },
+        ]);
+
+        expect(ids(rows)).toEqual(["w00001", "w01500"]);
+    });
+
+    it("nests a group two levels deep, as `A and (D or (E and F))` asks", async () => {
+        const rows = await widget([
+            { "id__any": ["w00001", "w00002", "w00003", "w00004"] },
+            {
+                kind: "or",
+                filters: [
+                    { "seq__eq": 3 },
+                    { kind: "and", filters: [{ "seq__gte": 1 }, { "seq__lte": 2 }] },
+                ],
+            },
+        ]);
+
+        expect(ids(rows)).toEqual(["w00001", "w00002", "w00003"]);
+    });
+
+    it("constrains nothing inside an empty nested group", async () => {
+        const rows = await widget([
+            { kind: "or", filters: [{ "seq__eq": 1 }, { kind: "and", filters: [] }] },
+        ]);
+
+        expect(ids(rows)).toEqual(["w00001"]);
+    });
+
     it("reads a group as a tenant scope, so a group alone lists the rows it matches", async () => {
         const rows = await widget([{ kind: "or", filters: [{ "id__eq": "w00001" }, { "id__eq": "w00002" }] }]);
 

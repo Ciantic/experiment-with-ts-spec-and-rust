@@ -15,7 +15,7 @@ export const canQueryInvoice: RouteGuard<{ filters?: Filters<InvoiceFilter> | un
     }
     const tenants = new Set<NonNullable<Invoice["tenantId"]>>();
     for (const filter of argument.filters ?? []) {
-        // An `or` group may hold the tenant, but only an entry at the root counts; a group is a refusal.
+        // A group may hold the tenant, but only a root entry counts, so a group is refused rather than read.
         if ("kind" in filter) {
             continue;
         }

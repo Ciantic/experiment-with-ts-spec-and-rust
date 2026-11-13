@@ -95,13 +95,22 @@ const invoice = table(
         column("number", { queryOrder: { default: "asc" } }),
         column("updatedAt", { sqlType: "timestamptz", queryOrder: {} }),
         column("deletedAt", { sqlType: "timestamptz", notNull: false, queryFilter: { ops: ["eq"] } }),
-        column("issueDate", { sqlType: "timestamptz", notNull: false, queryFilter: { ops: ["gte", "lte"] } }),
+        column("issueDate", {
+            sqlType: "timestamptz",
+            notNull: false,
+            queryFilter: { ops: ["gte", "lte", "between"] },
+        }),
         column("customerName"),
     ],
     new Map([["snapshot", { kind: "inlined", table: "customer", columns: { name: "customerName" } }]]),
 );
 
 const bare = table("audit_log", "AuditLog", [column("id", { primaryKey: true })]);
+
+const nullable = table("login_link", "LoginLink", [
+    column("id", { queryFilter: { ops: ["eq"] } }),
+    column("consumedAt", { sqlType: "timestamptz", notNull: false, queryFilter: { ops: ["isNull", "isNotNull"] } }),
+]);
 
 describe("queryFunctionName", () => {
     it("snake-cases the entity", () => {
@@ -146,7 +155,7 @@ describe("renderQueryModule", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("pub struct InvoiceReadOptions {");
-        expect(code).toContain("pub select: Vec<InvoiceSelectField>,");
+        expect(code).toContain("pub select: InvoiceSelection,");
         expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
         expect(code).toContain("pub order: Vec<InvoiceOrder>,");
         expect(code).toContain("pub fn build_query_invoice(options: InvoiceReadOptions) -> Result<PlannedQuery, ReadError>");
@@ -169,8 +178,8 @@ describe("renderQueryModule", () => {
 
         expect(code).toContain("pub fn with_select(fields: impl IntoIterator<Item = InvoiceSelectField>) -> Self");
         expect(code).toContain("pub fn filter(mut self, filter: impl Into<InvoiceFilter>) -> Self");
-        expect(code).toContain("pub fn filter_and(");
         expect(code).toContain("pub fn filter_or(");
+        expect(code).toContain("pub fn filter_and(");
         expect(code).toContain("pub fn order(mut self, order: InvoiceOrder) -> Self");
     });
 
@@ -180,6 +189,51 @@ describe("renderQueryModule", () => {
         expect(code).toContain("self.filters.push(filter.into());");
         expect(code).toContain("The same column may be filtered twice.");
         expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
+    });
+
+    it("writes each comparison as a flat `column__operator` key, as the TypeScript read does", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain('flat_filter::serialize("tenantId__eq", value, serializer)');
+        expect(code).toContain('"tenantId__eq" => Ok(Self::Eq(flat_filter::payload(key, value)?))');
+        // The umbrella enum is untagged, so a column variant is the entry itself.
+        expect(code).toContain("#[serde(untagged)]");
+        expect(code).not.toContain('#[serde(rename_all = "camelCase")]');
+    });
+
+    it("writes a range as the two-element array its operator takes", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain('flat_filter::serialize("issueDate__between", &[lower, upper], serializer)');
+        expect(code).toContain("let (lower, upper) = flat_filter::payload(key, value)?;");
+    });
+
+    it("writes a group with the kind discriminator the TypeScript read sends", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("    Group {");
+        expect(code).toContain("kind: FilterKind,");
+        expect(code).toContain("kind: FilterKind::Or,");
+        expect(code).toContain("kind: FilterKind::And,");
+    });
+
+    it("writes an ordering clause as a `[column, direction]` tuple", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("let mut tuple = serializer.serialize_tuple(2)?;");
+        expect(code).toContain("tuple.serialize_element(self.field.as_str())?;");
+        expect(code).toContain("tuple.serialize_element(&self.direction)?;");
+        // Nulls ordering has no wire spelling, so the clause is a plain pair.
+        expect(code).not.toContain("pub fn nulls_first");
+        expect(code).not.toContain("nulls: Option<NullsOrder>,");
+    });
+
+    it("writes the selection as an object naming each column", () => {
+        const code = renderQueryModule(invoice, spec);
+
+        expect(code).toContain("pub struct InvoiceSelection(pub Vec<InvoiceSelectField>);");
+        expect(code).toContain("map.serialize_entry(field.as_str(), &true)?;");
+        expect(code).toContain("flat_filter::selection(deserializer, InvoiceSelectField::from_column).map(Self)");
     });
 
     it("gives each filterable column an enum of exactly its ops", () => {
@@ -219,13 +273,13 @@ describe("renderQueryModule", () => {
         expect(code).toContain("impl From<InvoiceIssueDateFilter> for InvoiceFilter {");
     });
 
-    it("flattens an and group so its children stay separate conditions", () => {
+    it("groups a branch's filters by its own kind, and leaves one branch unparenthesised", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain("Self::And(filters) => Self::all(Combinator::And, filters),");
-        expect(code).toContain("Self::Or(filters) => Self::all(Combinator::Or, filters),");
-        expect(code).toContain("(Combinator::And, _) => typed,");
-        expect(code).toContain("_ => vec![TypedFilter::group(combinator, typed)],");
+        expect(code).toContain("Self::Group { kind, filters } => {");
+        expect(code).toContain("_ => vec![TypedFilter::group(kind.combinator(), typed)],");
+        expect(code).toContain("1 => typed,");
+        expect(code).toContain("0 => Vec::new(),");
     });
 
     it("serializes each field enum as its column name", () => {
@@ -243,15 +297,17 @@ describe("renderQueryModule", () => {
             "#[derive(Clone, Debug, Default, serde::Deserialize, PartialEq, serde::Serialize)]",
         );
         expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceReadOptions {');
-        expect(code).toContain('#[serde(default, skip_serializing_if = "Vec::is_empty")]\n    pub select: Vec<InvoiceSelectField>,');
+        // The TypeScript read always sends a selection, so a read always writes one, even empty.
+        expect(code).toContain("#[serde(default)]\n    pub select: InvoiceSelection,");
         expect(code).toContain('#[serde(default, skip_serializing_if = "Option::is_none")]\n    pub limit: Option<u64>,');
     });
 
-    it("serializes an ordering clause with a defaulted direction", () => {
+    it("names an ordering clause's column through its field set, and its direction through the planner's own", () => {
         const code = renderQueryModule(invoice, spec);
 
-        expect(code).toContain('#[serde(rename_all = "camelCase", deny_unknown_fields)]\npub struct InvoiceOrder {');
-        expect(code).toContain("    #[serde(default)]\n    direction: SortDirection,");
+        expect(code).toContain("impl<'de> serde::Deserialize<'de> for InvoiceOrder {");
+        expect(code).toContain("let (field, direction) = flat_filter::sort(");
+        expect(code).toContain("Ok(Self { field, direction })");
     });
 
     it("decodes into the entity's selected shape", () => {
@@ -283,6 +339,14 @@ describe("renderQueryModule", () => {
 
         expect(code).toContain("pub enum AuditLogOrderField {}");
         expect(code).toContain("pub const ALL: &'static [Self] = &[];");
+    });
+
+    it("writes a null test as a flat entry holding `true`, and rejects any other payload", () => {
+        const code = renderQueryModule(nullable, spec);
+
+        expect(code).toContain('Self::IsNull => flat_filter::serialize("consumedAt__isNull", &true, serializer),');
+        expect(code).toContain('"consumedAt__isNotNull" => {');
+        expect(code).toContain("flat_filter::null_test(key, value)?;");
     });
 
     it("wraps a long with_select signature instead of overflowing the line", () => {

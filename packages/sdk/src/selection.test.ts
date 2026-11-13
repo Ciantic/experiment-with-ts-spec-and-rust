@@ -33,14 +33,7 @@ describe("Selected", () => {
 });
 
 describe("Filters", () => {
-    /** The entity the filter cases read, with a nullable column so a null test is offered. */
-    interface Filtered {
-        id: string;
-        code?: string;
-        deletedAt?: Date;
-    }
-
-    /** The generated filter type: one flat comparison per column and operator. */
+    /** The generated filter type: one flat comparison per column and operator, over an entity whose `code` is optional and `deletedAt` nullable. */
     type FilteredFilter =
         | { id__eq: string }
         | { id__any: readonly string[] }
@@ -56,6 +49,17 @@ describe("Filters", () => {
             { id__eq: "w" },
             { kind: "or", filters: [{ code__eq: "c" }, { deletedAt__isNotNull: true }] },
         ];
+        // `A and (D or (E and F))`: a group's branches are entries, so the tree nests.
+        const nested: Filters<FilteredFilter> = [
+            { id__eq: "w" },
+            {
+                kind: "or",
+                filters: [
+                    { code__eq: "c" },
+                    { kind: "and", filters: [{ deletedAt__isNull: true }, { id__any: ["w"] }] },
+                ],
+            },
+        ];
         const wrongColumn: Filters<FilteredFilter> = [
             // @ts-expect-error a column the generated type does not name is not filterable
             { note__eq: "n" },
@@ -69,21 +73,26 @@ describe("Filters", () => {
             { id__any: "w" },
         ];
         const wrongKind: Filters<FilteredFilter> = [
-            // @ts-expect-error the only group a read accepts is `or`
-            { kind: "and", filters: [{ id__eq: "w" }] },
+            // @ts-expect-error a group combines with `and` or `or`, nothing else
+            { kind: "not", filters: [{ id__eq: "w" }] },
         ];
-        const nested: Filters<FilteredFilter> = [
+        const wrongNestedValue: Filters<FilteredFilter> = [
             {
                 kind: "or",
-                // @ts-expect-error an or-group holds comparisons, never another group
-                filters: [{ kind: "or", filters: [{ id__eq: "w" }] }],
+                filters: [
+                    {
+                        kind: "and",
+                        // @ts-expect-error a nested branch is still checked against the generated type
+                        filters: [{ id__gt: "w" }],
+                    },
+                ],
             },
         ];
 
-        void [leaf, group, wrongColumn, wrongOperator, wrongValue, wrongKind, nested];
+        void [leaf, group, nested, wrongColumn, wrongOperator, wrongValue, wrongKind, wrongNestedValue];
     }
 
-    it("takes flat comparisons and or groups over the generated filter type", () => {
+    it("takes flat comparisons and nested groups over the generated filter type", () => {
         expect(assertTypes).toBeTypeOf("function");
     });
 });

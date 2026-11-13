@@ -191,11 +191,12 @@ names one filter value and, on the rows scope, falls back to the lookup. The set
 is deduplicated with `new Set`, and an entry that does not name the column, or
 names it with an operator that cannot pin a tenant, simply contributes none.
 
-A read's tenant is read from the **root** of the filter list only. An `or` group
-is skipped, so a tenant named inside one does not count: the read then names no
+A read's tenant is read from the **root** of the filter list only. A group is
+skipped, so a tenant named inside one does not count: the read then names no
 tenant at the root, and the guard refuses it without the global permission. That
-is the safe direction — a group is never read as a narrower scope than it is —
-and it keeps the guard a scan of one level rather than a walk of a tree. See
+is the safe direction — hiding a tenant inside a branch only ever narrows that
+branch, so skipping groups can never widen the scope a guard allows — and it
+keeps the guard a scan of one level rather than a walk of a tree. See
 `docs/queries.md`.
 
 ### The two-level check

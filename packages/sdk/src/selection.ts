@@ -80,17 +80,20 @@ export type Filter<E, O extends FilterOps> = {
     [K in keyof O & Extract<keyof E, string>]-?: FlatFilter<E, K, Extract<NonNullable<O[K]>, string>>;
 }[keyof O & Extract<keyof E, string>];
 
-/** The filters of which any may match, as one entry of a read's list: `{ kind: "or", filters: […] }`. See docs/queries.md. */
+/** How a group combines its entries: `and` when all must match, `or` when any may. See docs/queries.md. */
+export type FilterKind = "and" | "or";
+
+/** A group of entries, as one entry of a read's list: `{ kind: "or", filters: […] }`. See docs/queries.md. */
 export type FilterGroup<F> = {
-    kind: "or";
-    /** The alternatives; each is one comparison, and a group inside a group would say nothing more. */
-    filters: readonly F[];
+    kind: FilterKind;
+    /** The branches; each is a comparison or, in turn, a group, so a tree of any depth. */
+    filters: readonly FilterEntry<F>[];
 };
 
-/** One entry of a read's filter list: a comparison, or a group of alternatives. See docs/queries.md. */
+/** One entry of a read's filter list: a comparison, or a group of entries. See docs/queries.md. */
 export type FilterEntry<F> = F | FilterGroup<F>;
 
-/** The filters of a read, combined with `and`, so one column may be filtered twice and a group says any of its branches. See docs/queries.md. */
+/** The filters of a read, combined with `and`, so one column may be filtered twice and a group combines its own branches. See docs/queries.md. */
 export type Filters<F> = readonly FilterEntry<F>[];
 
 /** The arguments of a read over `E`, as a branch carries them: the same shape a root read takes. See docs/queries.md. */

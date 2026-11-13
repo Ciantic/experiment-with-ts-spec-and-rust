@@ -689,9 +689,13 @@ describe("generateQueryFile", () => {
         expect(code).toContain('z.strictObject({ "id__eq": primitives.brandedIdSchema<"ThingId">() })');
         expect(code).toContain('z.strictObject({ "amount__gte": primitives.moneySchema })');
         expect(code).toContain('z.strictObject({ "amount__lte": primitives.moneySchema })');
+        expect(code).toContain("const queryThingFilterEntry: z.ZodType<FilterEntry<ThingFilter>> = z.union([");
+        expect(code).toContain('import type { FilterEntry } from "../selection.ts";');
+        expect(code).toContain('import type { ThingFilter } from "../filters.ts";');
         expect(code).toContain(
-            'z.union([queryThingFilter, z.strictObject({ kind: z.literal("or"), filters: z.array(queryThingFilter) })]),',
+            'z.strictObject({ kind: z.enum(["and", "or"]), filters: z.array(z.lazy(() => queryThingFilterEntry)) }),',
         );
+        expect(code).toContain("    filters: z.array(queryThingFilterEntry).exactOptional(),");
         expect(code).toContain("    limit: z.number().int().positive().exactOptional(),");
         expect(code).toContain("    offset: z.number().int().nonnegative().exactOptional(),");
         expect(code).toContain("    select: queryThingSelectSchema,");
@@ -768,12 +772,24 @@ describe("generateQueryFile", () => {
         expect(parses([{ kind: "or", filters: [{ "id__eq": "x" }, { "amount__gte": "1" }] }])).toBe(true);
         // A branch names one comparison, like a root entry.
         expect(parses([{ kind: "or", filters: [{ id: { eq: "x" }, amount: { gte: "1" } }] }])).toBe(false);
-        // A group inside a group says nothing more than one group does, so the type and the schema both refuse it.
+        // A group's branches are entries, so `D or (E and F)` is one more level of the same shape.
         expect(
-            parses([{ kind: "or", filters: [{ kind: "or", filters: [{ "id__eq": "x" }] }] }]),
+            parses([
+                {
+                    kind: "or",
+                    filters: [
+                        { "id__eq": "x" },
+                        { kind: "and", filters: [{ "id__eq": "y" }, { "amount__gte": "1" }] },
+                    ],
+                },
+            ]),
+        ).toBe(true);
+        // A nested branch is checked against the same comparisons, so an unknown column still fails.
+        expect(
+            parses([{ kind: "or", filters: [{ kind: "and", filters: [{ "nope__eq": "x" }] }] }]),
         ).toBe(false);
-        // The discriminator is `or`, so another kind is not a group.
-        expect(parses([{ kind: "and", filters: [{ "id__eq": "x" }] }])).toBe(false);
+        // The discriminator is a group kind, so anything else is not a group.
+        expect(parses([{ kind: "not", filters: [{ "id__eq": "x" }] }])).toBe(false);
     });
 
     it("accepts one filter per column and refuses an entry that names two", () => {

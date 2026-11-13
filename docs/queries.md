@@ -151,7 +151,14 @@ column's value type, and an operator its `ops=` does not name is not a member at
 all. A read, its route guard, and its client all name the same type:
 
 ```ts
-export type Filters<F> = readonly (F | { kind: "or"; filters: readonly F[] })[];
+export type FilterGroup<F> = {
+    kind: "and" | "or";
+    filters: readonly FilterEntry<F>[];
+};
+
+export type FilterEntry<F> = F | FilterGroup<F>;
+
+export type Filters<F> = readonly FilterEntry<F>[];
 
 /** One comparison a filter over `Widget` may name, as a flat `column__operator` entry. */
 export type WidgetFilter =
@@ -170,10 +177,10 @@ does not offer, is a **type error** and, over HTTP, a 400. An entry with two key
 is one too, because the value is a union of single-key objects. Left out,
 `filters` is an empty list, so `queryTenant(db, { select })` lists every row.
 
-### An `or` group
+### A group
 
-Every entry is `and`ed, and an entry written as a group says that any of its
-branches may match:
+Every entry is `and`ed, and an entry written as a group says how its own branches
+combine — `or` when any may match:
 
 ```ts
 const widgets = await queryWidget(db, {
@@ -190,18 +197,43 @@ const widgets = await queryWidget(db, {
 // "tenantId" = $1 AND "deletedAt" IS NULL AND ("accountId" = $2 OR "accountId" = $3)
 ```
 
-A branch is one comparison, exactly like a root entry:
+A branch is an entry, so it is a comparison or another group:
 
 ```ts
 filters: [{ kind: "or", filters: [{ startsAt__gte: from }, { startsAt__isNull: true }] }]
 // ("startsAt" >= $1 OR "startsAt" IS NULL)
 ```
 
-A group may not hold another group, because an `or` inside an `or` says nothing a
-single group does not. There is no `and` group either: the list is already one,
-and a branch holds one comparison, so `(A and B) or C` is written as an `or`
-group only when it is genuinely `A or B or C` — a nested `and` is not expressible.
-An empty group constrains nothing.
+Because a branch is an entry, a group nests to any depth, so `A and B and
+(D or (E and F))` needs no rewriting:
+
+```ts
+const widgets = await queryWidget(db, {
+    filters: [
+        { tenantId__eq: tenantId },
+        { deletedAt__isNull: true },
+        {
+            kind: "or",
+            filters: [
+                { accountId__eq: first },
+                {
+                    kind: "and",
+                    filters: [{ startsAt__gte: from }, { startsAt__lte: to }],
+                },
+            ],
+        },
+    ],
+    select: { code: true },
+});
+// "tenantId" = $1 AND "deletedAt" IS NULL
+//   AND ("accountId" = $2 OR ("startsAt" >= $3 AND "startsAt" <= $4))
+```
+
+An `and` group says nothing a root list does not, so it earns its place only as a
+branch of an `or`; a group of one branch is that branch, and an empty group
+constrains nothing, exactly as an empty list does. A group's entries are checked
+against the same generated type as a root entry, so an unknown column or operator
+fails at any depth.
 
 A nullable column's null test is a variant like any other, which is how a read
 names the rows a default would hide:
@@ -217,10 +249,10 @@ const deleted = await queryWidget(db, {
 });
 ```
 
-`__isNull` and `__isNotNull` take no value. They are offered only
-for an optional field, whose column can hold null; a null test on a not-null
-column would match every row or none, so the linter rejects an `ops=` that names
-either there.
+`__isNull` and `__isNotNull` take `true` and nothing else, so the entry still
+carries exactly one value. They are offered only for an optional field, whose
+column can hold null; a null test on a not-null column would match every row or
+none, so the linter rejects an `ops=` that names either there.
 
 A filter whose column defaults is applied unless an entry names it, so the
 default only fills a hole.
@@ -642,8 +674,8 @@ because the ranked window orders each parent's rows before they are grouped.
   `and`, each naming one column with one operator, so a column is filtered twice
   by two entries. An entry naming two columns throws.
 - **A group is an entry, and its branches are entries.** `{ kind: "or", filters:
-  […] }` matches when any branch does; the branches are comparisons, so a group
-  cannot hold another group.
+  […] }` matches when any branch does, `{ kind: "and", filters: […] }` when all do,
+  and a branch may itself be a group, so the tree nests to any depth.
 - **A range is two entries, or one `between`.** `ops=` decides which is offered:
   `{ gte }` and `{ lte }` need no `between`, and `between` needs no second entry.
   Both render the same rows.

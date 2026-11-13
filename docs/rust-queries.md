@@ -4,8 +4,9 @@
 `crates/infra/src/db/queries/`. An entity with `@queries query` at
 `spec/src/widget-service/Widget.ts` gets
 `crates/infra/src/db/queries/query_widget.rs`. The crate writes no SQL of its
-own: every read is built by `datagrid_query`, so Rust and the TypeScript side
-share one statement shape.
+own: every read is built by `datagrid_query`. Rust and the TypeScript side share
+the read options' wire format, so one JSON body describes a read to either
+backend, though each lowers it to its own SQL.
 
 ## The generated module
 
@@ -55,7 +56,7 @@ async fn open_invoices(
     ])
     .filter(InvoiceTenantIdFilter::Eq(tenant.clone()))
     .filter(InvoiceDeletedAtFilter::Eq(now))
-    .order(InvoiceOrderField::CreatedAt.desc().nulls_last())
+    .order(InvoiceOrderField::CreatedAt.desc())
     .limit(limit);
 
     query_invoice(pool, options).await
@@ -87,9 +88,10 @@ SELECT * FROM "invoice"
     AND ("tenantId" = $3 OR "tenantId" = $4)
 ```
 
-`filter_or` and `filter_and` take an iterator whose items convert into
-`InvoiceFilter`, so a list of one column's type needs no conversion. A list that
-mixes columns converts each item, `InvoiceFilter::from(filter)`:
+`filter_or` takes an iterator whose items convert into `InvoiceFilter`, so a list
+of one column's type needs no conversion. A list that mixes columns converts each
+item, `InvoiceFilter::from(filter)`, because a group holds one enum for every
+column:
 
 ```rust
 .filter_or([
@@ -112,7 +114,7 @@ let planned = build_query_invoice(options)?;
 println!("{} {:?}", planned.sql, planned.params);
 // SELECT "id", "number", "totalAmount", "createdAt" FROM "invoice"
 //   WHERE "tenantId" = $1 AND "deletedAt" IS NULL
-//   ORDER BY "createdAt" DESC NULLS LAST LIMIT 25
+//   ORDER BY "createdAt" DESC LIMIT 25
 ```
 
 ## Typed fields
@@ -122,9 +124,9 @@ Each module names the entity's columns once, as one type per capability:
 | Type | Built from | Shape |
 | --- | --- | --- |
 | `WidgetSelectField` | every column | one variant per selectable column |
-| `WidgetOrderField` | `@queryOrderBy` | one variant per orderable column, with `WidgetOrder` as the clause it builds |
+| `WidgetOrderField` | `@queryOrderBy` | one variant per orderable column, with `WidgetOrder` as the `[column, direction]` pair it builds |
 | `Widget<Title>Filter` | one column | one variant per operator its `@queryFilter ops=` names |
-| `WidgetFilter` | `@queryFilter` | one variant per filter column, plus `and` and `or` groups |
+| `WidgetFilter` | `@queryFilter` | one variant per filter column, plus the `and`/`or` group |
 
 A column an `@inlined` branch reaches through that branch is not selectable by
 name, so it is absent from `WidgetSelectField`. An entity that declares no
@@ -156,21 +158,27 @@ pub enum WidgetTenantIdFilter {
 The variants are the column's `@queryFilter ops=` and nothing else, and each one
 carries the model type of that column, so a value of the wrong type does not
 compile and a comparison the spec omits cannot be written. The umbrella enum
-collects every column's type, plus the groups:
+collects every column's type, plus the group:
 
 ```rust
-#[serde(rename_all = "camelCase")]
+#[serde(untagged)]
 pub enum WidgetFilter {
     Id(WidgetIdFilter),
     TenantId(WidgetTenantIdFilter),
     DeletedAt(WidgetDeletedAtFilter),
-    And(Vec<Self>),
-    Or(Vec<Self>),
+    Group {
+        kind: FilterKind,
+        filters: Vec<Self>,
+    },
 }
 ```
 
 Every column type converts into it (`impl From<WidgetTenantIdFilter> for
-WidgetFilter`), so `filter` takes whichever the caller has.
+WidgetFilter`), so `filter` takes whichever the caller has. The group is a
+struct variant rather than a second list of filters, so it travels on the wire as
+`{ "kind": "and" | "or", "filters": [...] }` and cannot be confused with a
+comparison. Its branches are the same enum, so a group nests to any depth and
+`kind` decides how each level combines.
 
 Because the read's `filters` is a list combined with `and`, the same column may
 be filtered more than once:
@@ -182,7 +190,8 @@ WidgetReadOptions::default()
 // "tenantId" = $1 AND "tenantId" = ANY($2)
 ```
 
-`filter_and` and `filter_or` take a set of filters:
+`filter_or` adds one group whose branches may match any, and `filter_and` one
+whose branches must all match:
 
 ```rust
 .filter_or([
@@ -192,8 +201,29 @@ WidgetReadOptions::default()
 // ("tenantId" = $1 OR "tenantId" = $2)
 ```
 
-An `And` group is flattened into the enclosing list, since a branch's children
-are already combined with `and`; an `Or` group stays parenthesised.
+A branch is the same enum, so a group is a branch and the tree nests. `A and
+(D or (E and F))` needs no rewriting:
+
+```rust
+WidgetReadOptions::default()
+    .filter(WidgetTenantIdFilter::Eq(tenant))
+    .filter_or([
+        WidgetFilter::from(WidgetAccountIdFilter::Eq(first)),
+        WidgetFilter::Group {
+            kind: FilterKind::And,
+            filters: vec![
+                WidgetStartsAtFilter::Gte(from).into(),
+                WidgetStartsAtFilter::Lte(to).into(),
+            ],
+        },
+    ])
+// "tenantId" = $1 AND ("accountId" = $2 OR ("startsAt" >= $3 AND "startsAt" <= $4))
+```
+
+The values keep the order they were given, so a group's parameters follow its
+branches. The read's own list is still combined with `and`, which is why every
+group stays parenthesised; a group of one branch lowers to that branch, and an
+empty group constrains nothing.
 
 Lowering a filter to the builder's statement happens once, inside the module:
 `into_typed_filter` maps each set column to its column name and `SqlType` and
@@ -243,7 +273,7 @@ entity's own typed sets:
 
 ```rust
 pub struct WidgetReadOptions {
-    pub select: Vec<WidgetSelectField>,
+    pub select: WidgetSelection,
     pub filters: Vec<WidgetFilter>,
     pub order: Vec<WidgetOrder>,
     pub limit: Option<u64>,
@@ -251,18 +281,19 @@ pub struct WidgetReadOptions {
 }
 ```
 
-An empty `select` selects every column. A filter names one column and nests
-further filters in `and` or `or`. A `WidgetOrder` pairs a
-`WidgetOrderField` with a direction and an optional nulls order. Both types only
-mention the entity's own columns, so an options value cannot name a column the
-spec forbids.
+An empty `select` selects every column; `WidgetSelection` is a list of
+`WidgetSelectField` that serializes as an object naming each one. A filter names
+one column and one comparison, or a group of entries. A `WidgetOrder` pairs a
+`WidgetOrderField` with a direction, and leaves nulls placement to the column's
+own default for that direction. Both types only mention the entity's own columns,
+so an options value cannot name a column the spec forbids.
 
 The options are built either literally or fluently:
 
 ```rust
 let options = WidgetReadOptions::with_select([WidgetSelectField::Id, WidgetSelectField::Notes])
     .filter(WidgetTenantIdFilter::Eq(tenant_id))
-    .order(WidgetOrderField::CreatedAt.desc().nulls_last())
+    .order(WidgetOrderField::CreatedAt.desc())
     .limit(50);
 ```
 
@@ -297,47 +328,63 @@ let back: WidgetReadOptions = serde_json::from_str(&json)?;
 assert_eq!(back, options);
 ```
 
-A select field is its column name, a filter is one column with one comparison,
-and the comparison is the operator:
+The shape is the one the TypeScript read sends: a select is an object naming its
+columns, a filter is one flat `column__operator` entry, and an ordering clause is
+a `[column, direction]` pair.
 
 ```json
 {
-  "select": ["id", "number", "totalAmount", "createdAt"],
+  "select": { "id": true, "number": true, "totalAmount": true, "createdAt": true },
   "filters": [
-    { "tenantId": { "eq": "…" } },
-    { "deletedAt": "isNull" },
-    { "id": { "any": ["…", "…"] } },
-    { "issueDate": { "gte": "2026-01-01T00:00:00Z" } },
-    { "issueDate": { "lte": "2026-02-01T00:00:00Z" } },
-    { "or": [
-        { "deletedAt": "isNull" },
-        { "sellerId": "isNotNull" }
+    { "tenantId__eq": "…" },
+    { "deletedAt__isNull": true },
+    { "id__any": ["…", "…"] },
+    { "issueDate__gte": "2026-01-01T00:00:00Z" },
+    { "issueDate__lte": "2026-02-01T00:00:00Z" },
+    { "kind": "or", "filters": [
+        { "deletedAt__isNull": true },
+        { "kind": "and", "filters": [
+            { "sellerId__isNotNull": true },
+            { "id__any": ["…", "…"] }
+        ] }
     ] }
   ],
-  "order": [{ "field": "createdAt", "direction": "desc", "nulls": "last" }],
+  "order": [["createdAt", "desc"]],
   "limit": 25,
   "offset": 50
 }
 ```
 
-Each entry names one column, and the entries are combined with `and`, so a column
-filtered twice is two entries.
+Each entry names one column and one operator, and the entries are combined with
+`and`, so a column filtered twice is two entries. A group is the only entry
+shaped differently: `kind` says whether all of its `filters` must match or any
+may, and each of them is again an entry, so a group nests to any depth.
 
 Decoding rejects everything the entity's own types do not allow:
 
-- An unknown key in the options or in an ordering clause is an error.
+- An unknown key in the options is an error.
 - A column the entity does not declare is an error, and so is a column that
   carries no `@queryFilter` in `filters` or no `@queryOrderBy` in `order`.
 - An operator the column's `ops=` does not name is an error, so a payload cannot
   reach a comparison the spec does not allow.
-- A value of the wrong type is an error at decode: `{"tenantId": {"eq": true}}`
-  fails because a `TenantId` is not a boolean. Nothing is coerced and no
-  separate validation pass is needed.
+- An entry that names no comparison, or more than one, is an error: a filter entry
+  is one operator on one column, so `{}` and `{"id__eq": "…", "id__neq": "…"}` both
+  fail.
+- A selected column whose value is not `true` is an error, so a selection cannot
+  be read as a patch, and a null test whose value is not `true` is an error, so a
+  `false` can never be read as a test.
+- A value of the wrong type is an error at decode: `{"tenantId__eq": true}` fails
+  because a `TenantId` is not a boolean. Nothing is coerced and no separate
+  validation pass is needed.
 
 Every part of the shape is optional: `{}` reads every column of every row. An
-empty collection and an omitted one mean the same thing, so a round-trip drops
-`"select": []` rather than writing it. An ordering clause may omit `direction`,
-which reads as `asc`.
+empty collection and an omitted one mean the same thing, so a round-trip drops an
+empty `filters` or `order` rather than writing it. A selection is always written,
+even empty, because the TypeScript read always sends one: `{}` and
+`"select": {}` mean the same, and only the second is a body both sides accept. A
+selection also decodes in its columns' alphabetical order, since it travels as an
+object. An ordering clause must name its direction; the planner has no default for
+it.
 
 ## Planned parameters
 
@@ -418,6 +465,6 @@ removes a `query_<entity>.rs` whose entity no longer declares `@queries query`.
 `run` in the generator is also part of `scripts/generate.ts`, so a full
 `pnpm generate` refreshes the Rust queries with the other artifacts.
 
-The hand-written `read_options.rs`, `sql_type.rs`, `executor.rs`, and
-`postgres.rs` live beside the generated `queries/` directory, so regeneration
-never writes over them.
+The hand-written `flat_filter.rs`, `read_options.rs`, `sql_type.rs`,
+`executor.rs`, and `postgres.rs` live beside the generated `queries/` directory,
+so regeneration never writes over them.

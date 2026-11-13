@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { SDK_PACKAGE_ROOT } from "../paths.ts";
+import { filterTypeName } from "./generate-filters.ts";
 import {
     loadSpec,
     lowerFirst,
@@ -153,6 +154,14 @@ export function generateQueryFile(
     if (queries.some((query) => query.usesPrimitives)) {
         lines.push('import * as primitives from "../primitives.ts";');
     }
+    // A filter entry's type is the generated union, so `tsc` checks the runtime schema against it.
+    const filtered = queries.filter((query) => query.whereFields.length > 0);
+    if (filtered.length > 0) {
+        lines.push('import type { FilterEntry } from "../selection.ts";');
+        for (const query of filtered) {
+            lines.push(`import type { ${filterTypeName(query.entity)} } from "../filters.ts";`);
+        }
+    }
     const dependencies = new Set(queries.flatMap((query) => query.dependencies));
     for (const dependency of [...dependencies].sort((a, b) => a.localeCompare(b))) {
         const target = entitiesByName.get(dependency);
@@ -195,7 +204,7 @@ export function generateQueryFile(
     for (const query of queries) {
         lines.push("");
         if (query.whereFields.length > 0) {
-            lines.push(...comparisonSchema(query));
+            lines.push(...filterSchemas(query));
             lines.push("");
         }
         lines.push(`export const ${query.schemaName} = z.strictObject({`);
@@ -207,11 +216,9 @@ export function generateQueryFile(
             lines.push(`        z.tuple([z.enum([${names}]), z.enum(["asc", "desc"])]),`);
             lines.push("    ).exactOptional(),");
         }
-        // A filter names one column and one comparison, or a group of alternatives; the list is `and`ed.
+        // A filter names one column and one comparison, or a group of them; the list is `and`ed.
         if (query.whereFields.length > 0) {
-            lines.push("    filters: z.array(");
-            lines.push(`        z.union([${query.filterSchemaName}, z.strictObject({ kind: z.literal("or"), filters: z.array(${query.filterSchemaName}) })]),`);
-            lines.push("    ).exactOptional(),");
+            lines.push(`    filters: z.array(${query.filterSchemaName}Entry).exactOptional(),`);
         }
         lines.push(...PAGING_FIELDS);
         lines.push(`    select: ${entitySchema ? entitySchema.querySelectName : "z.never()"},`);
@@ -220,11 +227,17 @@ export function generateQueryFile(
     return lines.join("\n") + "\n";
 }
 
-/** One comparison a read's filter may name, named once so the group can reuse it without nesting. */
-function comparisonSchema(query: ZodQuery): string[] {
+/** The comparison schema and the entry schema, which recurses through `z.lazy`. See docs/validation.md. */
+function filterSchemas(query: ZodQuery): string[] {
     return [
         `/** One comparison a \`${query.entity}\` filter may name, as a flat \`column__operator\` key. */`,
         `const ${query.filterSchemaName} = z.union([${query.whereFields.flatMap(filterEntries).join(", ")}]);`,
+        "",
+        `/** One entry of a \`${query.entity}\` filter list: a comparison, or a group of entries. */`,
+        `const ${query.filterSchemaName}Entry: z.ZodType<FilterEntry<${filterTypeName(query.entity)}>> = z.union([`,
+        `    ${query.filterSchemaName},`,
+        `    z.strictObject({ kind: z.enum(["and", "or"]), filters: z.array(z.lazy(() => ${query.filterSchemaName}Entry)) }),`,
+        "]);",
     ];
 }
 

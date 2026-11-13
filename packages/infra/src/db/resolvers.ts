@@ -59,19 +59,19 @@ export type ComparisonClause = Record<string, unknown>;
 /** The characters that separate a column from its operator in a flat filter key. */
 const FILTER_SEPARATOR = "__";
 
-/** A group of alternatives, as a read passes it: any branch may match. See docs/queries.md. */
+/** A group of entries, as a read passes it: `and` when all must match, `or` when any may. See docs/queries.md. */
 export interface GroupClause {
-    kind: "or";
-    /** The branches; each is one comparison. */
-    filters: readonly ComparisonClause[];
+    kind: "and" | "or";
+    /** The branches; each is a comparison or, in turn, a group. */
+    filters: readonly FilterClause[];
 }
 
-/** One entry of a read's filter list: a comparison or a group. See docs/queries.md. */
+/** One entry of a read's filter list: a comparison or a group of entries. See docs/queries.md. */
 export type FilterClause = ComparisonClause | GroupClause;
 
 /** True when an entry is a group rather than a comparison on a column. */
 function isGroupClause(filter: FilterClause): filter is GroupClause {
-    return "kind" in filter && filter.kind === "or";
+    return "kind" in filter;
 }
 
 /** The SQL operator each single-value comparison maps to. */
@@ -388,24 +388,25 @@ const RANGE_COMPARISON_SQL: Record<string, string> = {
 };
 
 /**
- * One filter's clauses: each comparison on its column becomes one `and`ed condition.
+ * One filter's clauses: a comparison becomes its own `and`ed conditions, and a group joins its branches the way `kind` says.
  * @throws {QueryError} when the filter names no column, an operator the column does not allow, or a value of the wrong shape
  */
 function filterClauses(table: string, meta: QueryTable, filter: FilterClause, params: unknown[]): string[] {
-    if (isGroupClause(filter)) {
-        const branches: string[] = [];
-        for (const branch of filter.filters) {
-            const conditions = comparisonClauses(table, meta, branch, params);
-            if (conditions.length === 0) {
-                continue;
-            }
-            const [only] = conditions;
-            branches.push(only !== undefined && conditions.length === 1 ? only : `(${conditions.join(" and ")})`);
-        }
-        // An empty group constrains nothing, exactly as an empty filter list does.
-        return branches.length === 0 ? [] : [`(${branches.join(" or ")})`];
+    if (!isGroupClause(filter)) {
+        return comparisonClauses(table, meta, filter, params);
     }
-    return comparisonClauses(table, meta, filter, params);
+    const branches: string[] = [];
+    for (const branch of filter.filters) {
+        const conditions = filterClauses(table, meta, branch, params);
+        if (conditions.length === 0) {
+            continue;
+        }
+        const [only] = conditions;
+        branches.push(only !== undefined && conditions.length === 1 ? only : `(${conditions.join(" and ")})`);
+    }
+    // An empty group constrains nothing, exactly as an empty filter list does.
+    const joiner = filter.kind === "or" ? " or " : " and ";
+    return branches.length === 0 ? [] : [`(${branches.join(joiner)})`];
 }
 
 /**

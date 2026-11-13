@@ -119,7 +119,7 @@ function checkLines(scope: string, action: string, optional: boolean, emptyMessa
     return lines;
 }
 
-/** The tenants a read's filter list names: one flat comparison per entry, and only at the root of the list. */
+/** The tenants a read's filter list names: one flat comparison per entry, and only at the root, never inside a group. */
 function queryTenantLines(entity: RestEntity, field: string): string[] {
     const operators = entity.whereFields.find((candidate) => candidate.name === field)?.operators ?? [];
     // An optional owner's column is nullable, so the tenant it names is never `undefined`.
@@ -127,7 +127,7 @@ function queryTenantLines(entity: RestEntity, field: string): string[] {
     const lines = [
         `    const tenants = new Set<${tenant}>();`,
         "    for (const filter of argument.filters ?? []) {",
-        "        // An `or` group may hold the tenant, but only an entry at the root counts; a group is a refusal.",
+        "        // A group may hold the tenant, but only a root entry counts, so a group is refused rather than read.",
         '        if ("kind" in filter) {',
         "            continue;",
         "        }",
