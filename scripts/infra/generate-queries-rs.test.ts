@@ -158,7 +158,7 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub select: InvoiceSelection,");
         expect(code).toContain("pub filters: Vec<InvoiceFilter>,");
         expect(code).toContain("pub order: Vec<InvoiceOrder>,");
-        expect(code).toContain("pub fn as_sql(&self) -> Result<String, ReadError> {");
+        expect(code).toContain("pub fn as_sql(&self) -> Result<PlannedQuery, ReadError> {");
         expect(code).toContain(
             "    pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<InvoiceSelect>, ReadError> {",
         );
@@ -184,11 +184,11 @@ describe("renderQueryModule", () => {
         expect(code).toContain("pub fn order(mut self, order: InvoiceOrder) -> Self");
     });
 
-    it("plans the read from the builder, so a caller can log the statement before running it", () => {
+    it("plans the read from the builder, so a caller can log the plan before running it", () => {
         const code = renderQueryModule(invoice, spec);
 
         expect(code).toContain("        let read = self.clone().into_read_options()?;");
-        expect(code).toContain('        Ok(read.plan("invoice", None)?.sql)');
+        expect(code).toContain('        read.plan("invoice", None)');
     });
 
     it("runs the read from the builder, binding its own parameters", () => {

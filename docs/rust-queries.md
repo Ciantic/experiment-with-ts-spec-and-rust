@@ -12,7 +12,7 @@ backend, though each lowers it to its own SQL.
 
 ```rust
 impl WidgetQuery {
-    pub fn as_sql(&self) -> Result<String, ReadError> { … }
+    pub fn as_sql(&self) -> Result<PlannedQuery, ReadError> { … }
 
     pub async fn query(self, db: &impl SqlExecutor) -> Result<Vec<WidgetSelect>, ReadError> { … }
 }
@@ -24,8 +24,9 @@ of the generated surface; the query converts to it internally. A module declares
 types and builders, and these two methods are what it does with them: `query`
 runs the statement and decodes every row into the model's selected shape,
 `WidgetSelect`, from `crates/models` (`docs/rust-models.md`), and `as_sql`
-reports the same statement without the database, to log or assert on. `as_sql`
-borrows, so a read can be reported and then still run.
+reports the same statement as a plan — its SQL and typed parameters — without
+the database, to log, assert on, or bind elsewhere. `as_sql` borrows, so a read
+can be reported and then still run.
 
 A field the read did not select stays `Partial::Unset`, so the caller can tell
 "not read" from "null".
@@ -109,11 +110,11 @@ One row is the first result of a limited read, since there is no separate `get`:
 let invoice = invoice_query.query(pool).await?.pop();
 ```
 
-An empty `select` reads every column, and `as_sql` reports the statement instead
-of running it, so the read can be logged or asserted on before it is sent:
+An empty `select` reads every column, and `as_sql` returns the plan instead of
+running it, so the read can be logged, asserted on, or bound before it is sent:
 
 ```rust
-println!("{}", invoice_query.as_sql()?);
+println!("{}", invoice_query.as_sql()?.sql);
 // SELECT "id", "number", "totalAmount", "createdAt" FROM "invoice"
 //   WHERE "tenantId" = $1 AND "deletedAt" IS NULL
 //   ORDER BY "createdAt" DESC LIMIT 25
@@ -300,7 +301,7 @@ let query = WidgetQuery::with_select([WidgetSelectField::Id, WidgetSelectField::
 ```
 
 Every builder takes and returns `self`, and the last step is either `query`, which
-runs the read, or `as_sql`, which reports the statement it would run.
+runs the read, or `as_sql`, which reports the plan it would run.
 
 `into_read_options` lowers it to the source-independent `ReadOptions` in
 `crates/infra/src/db/read_options.rs`. Both that method and the type are
@@ -394,9 +395,9 @@ it.
 ## Planned parameters
 
 `ReadOptions::plan` builds the statement and pairs every parameter with the
-column type of the filter that produced it. It is crate-internal: a read reaches
-it through `query`, which binds the parameters as the statement declares them,
-while `as_sql` reports only the text.
+column type of the filter that produced it. Both the generated `as_sql` and
+`query` reach it; `query` binds the parameters as the statement declares them,
+and `as_sql` hands the same plan back to the caller.
 
 ```rust
 pub struct PlannedQuery {

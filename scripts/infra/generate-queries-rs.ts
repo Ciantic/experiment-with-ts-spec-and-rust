@@ -798,14 +798,14 @@ function renderQueryBuilder(entity: string, table: string): string[] {
         "        self",
         "    }",
         "",
-        "    /// The statement this query runs, so a caller can log it before deciding to run it.",
+        "    /// The statement this query runs: its SQL and the typed parameters it binds.",
         "    ///",
         "    /// # Errors",
         "    ///",
         "    /// Returns [`ReadError::Build`] when the query does not form a valid statement.",
-        `    pub fn as_sql(&self) -> Result<String, ReadError> {`,
+        `    pub fn as_sql(&self) -> Result<PlannedQuery, ReadError> {`,
         "        let read = self.clone().into_read_options()?;",
-        `        Ok(read.plan(${JSON.stringify(table)}, None)?.sql)`,
+        `        read.plan(${JSON.stringify(table)}, None)`,
         "    }",
         "",
         "    /// Run this query, decoding every row into the entity's selected shape.",
@@ -858,7 +858,7 @@ export function renderQueryModule(table: Table, spec?: SpecModel): string {
     lines.push(
         ...useList(
             "crate::db",
-            ["FilterKind", "ReadError", "ReadOptions", "SqlExecutor", "SqlType", "TypedFilter", "decode_rows", "flat_filter"].sort(),
+            ["FilterKind", "PlannedQuery", "ReadError", "ReadOptions", "SqlExecutor", "SqlType", "TypedFilter", "decode_rows", "flat_filter"].sort(),
         ),
     );
     const filters = filterFields(table, spec);
