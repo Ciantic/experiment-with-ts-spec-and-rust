@@ -4,18 +4,10 @@ edition.workspace = true
 version.workspace = true
 
 [dependencies]
-chrono = { version = "0.4", features = ["serde"] }
-datagrid_query = { path = "../../../datagrid-query-builder/datagrid-query-rs" }
-models = { path = "../models" }
+chrono.workspace = true
+datagrid_query.workspace = true
 macro-helpers = { path = "../macro-helpers" }
-serde = "1"
-serde_json = "1"
-sqlx = { version = "0.9", default-features = false, features = [
-    "bigdecimal",
-    "chrono",
-    "json",
-    "postgres",
-    "runtime-tokio",
-    "tls-none",
-    "uuid",
-] }
+models = { path = "../models" }
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
