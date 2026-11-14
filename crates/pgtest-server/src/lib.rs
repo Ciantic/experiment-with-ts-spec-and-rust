@@ -325,10 +325,10 @@ fn start_container(container: &str, port: u16) {
             "--detach",
             "--name",
             container,
-            "--tmpfs",
             // Keeps the data directory in RAM; initdb is what dominates startup.
-            // The mount is the parent because 18+ refuses a mount at `.../data`.
-            "/var/lib/postgresql:rw",
+            // Applies to whatever path the image itself declares as a volume.
+            "--image-volume",
+            "tmpfs",
             "--publish",
             &format!("127.0.0.1:{port}:5432"),
             "--env",
